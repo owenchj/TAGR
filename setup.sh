@@ -6,7 +6,7 @@ then
 else
     mkdir -p samples/img/rgb
     mkdir -p samples/img/yuv
-    
+
     ffmpeg -i samples/g01s20.avi -f image2 samples/img/rgb/img_%03d.jpg
 
     # RGB -> YCrCb
