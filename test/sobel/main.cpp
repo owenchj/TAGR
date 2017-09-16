@@ -7,138 +7,149 @@
 
 #include "People.h"
 
-const unsigned int thred_sobel = 10;
+using PeoplePtr = std::shared_ptr<People>;
+
+const unsigned int thred_sobel = 50;
 const unsigned int thred_diff = 10;
 
-People first_people;
-People second_people;
+unsigned int people_num = 2;
+
+vector<PeoplePtr > peoples;
 vector<Point2i > total_points;
 
-Point2i first_temp_center;
-Point2i second_temp_center;
+vector<Point2i > temp_center;
+vector<Point2i > new_center;
 
-Point2i first_new_center;
-Point2i second_new_center;
+vector<unsigned int > indexs;
 
 unsigned int points_distance(Point2iPtr first, Point2iPtr second) {
     return (abs(first->x-second->x) + abs(first->y-second->y));
 }
 
-void k_means_cluster(Mat input)
+vector<Point2i> &k_means_cluster(Mat &input)
 {
+    cout << "0-";
+    // Initialization
     total_points.clear();
+    temp_center.clear();
+    new_center.clear();
+    indexs.clear();
+
     for (int j = 0; j < input.cols; j++)
         for (int i = 0; i < input.rows; i++)
         {
             if (input.at<unsigned char>(i, j) == 255)
                 total_points.push_back(Point2i(i,j));
         }
+    if (total_points.size() == 0) return new_center;
 
     // Initialize random seed
     srand (time(NULL));
-    // Generate secret number between 1 and 1000
-    size_t first_index, second_index;
-    first_index = rand() % total_points.size();
-    first_people.center = total_points[first_index];
-    first_people.contour.push_back(std::make_shared<Point2i>(total_points[first_index]));
-    first_new_center.x = 0;
-    first_new_center.y = 0;
 
-    second_index = rand() % total_points.size();
-    second_people.center = total_points[second_index];
-    second_people.contour.push_back(std::make_shared<Point2i>(total_points[second_index]));
-    second_new_center.x = 0;
-    second_new_center.y = 0;
-    cout << first_index << " "  << second_index << " "<< total_points.size() << endl;
-    while ( points_distance(std::make_shared<Point2i>(first_new_center), std::make_shared<Point2i>(first_people.center)) > 10
-            ||  points_distance(std::make_shared<Point2i>(second_new_center), std::make_shared<Point2i>(second_people.center)) > 10 ) {
-    // while (first_people.center != first_new_center || second_people.center != second_new_center) {
+    for (int i = 0; i < people_num; i++) {
+        // Generate secret number between 1 and 1000
+        size_t index = rand() % total_points.size();
+        auto it = std::find(indexs.begin(), indexs.end(), index);
+
+        if (it == indexs.end()) indexs.push_back(index);
+        else continue;
+
+        peoples[i]->center = total_points[index];
+        peoples[i]->contour.push_back(std::make_shared<Point2i>(total_points[index]));
+
+        temp_center.push_back(Point2i(0,0));
+        new_center.push_back(Point2i(0,0));
+        //cout << index << " "<< total_points.size() << endl;
+    }
+//    cout << "1-";
+
+    // Start
+    while (1) {
+        unsigned int stop_flag=0;
+        for (int i = 0; i < people_num; i++) {
+            if (points_distance(std::make_shared<Point2i>(new_center[i]), std::make_shared<Point2i>(peoples[i]->center)) > 7)
+                stop_flag++;
+        }
+
+        if (stop_flag == 0) break;
+
         // Copy new to old
-        if (first_new_center.x != 0 && first_new_center.y != 0) {
-            first_people.center = first_new_center;
-            second_people.center = second_new_center;
-
-            first_people.contour.push_back(std::make_shared<Point2i>(first_new_center));
-            second_people.contour.push_back(std::make_shared<Point2i>(second_new_center));
+        for (int i = 0; i < people_num; i++) {
+            if (new_center[0].x != 0 && new_center[0].y != 0) {
+                peoples[i]->center = new_center[i];
+                peoples[i]->contour.push_back(std::make_shared<Point2i>(new_center[i]));
+            }
         }
 
         // Distribute points
         for (int i = 0; i < total_points.size(); i++)
         {
-            Point2iPtr current_point = std::make_shared<Point2i>(total_points[i]);
-            unsigned int first_distance =  points_distance(current_point, std::make_shared<Point2i>(first_people.center));
-            unsigned int second_distance =  points_distance(current_point, std::make_shared<Point2i>(second_people.center));
+            unsigned int min = 300000;
+            unsigned int index = 0;
+            unsigned int drop_flag = 0;
 
-            if (first_distance != 0 && second_distance != 0) {
-                if (first_distance < second_distance)
-                    first_people.contour.push_back(current_point);
-                else
-                    second_people.contour.push_back(current_point);
+            Point2iPtr current_point = std::make_shared<Point2i>(total_points[i]);
+            for (int i = 0; i < people_num; i++) {
+                unsigned int distance = points_distance(current_point, std::make_shared<Point2i>(peoples[i]->center));
+                if (distance == 0) {
+                    drop_flag++;
+                    break;
+                } else {
+                    if (distance < min) {
+                        min = distance;
+                        index = i;
+                    }
+                }
             }
+            if(drop_flag == 0)  peoples[index]->contour.push_back(current_point);
         }
 
 
         // Calculate new center
-        unsigned int x_sum = 0;
-        unsigned int y_sum = 0;
-        unsigned int min = 3000000;
-        for (auto &point : first_people.contour)
-        {
-            x_sum += point->x;
-            y_sum += point->y;
-            input.at<unsigned char>(point->x, point->y) = 50;
-        }
-        first_temp_center = Point2i(x_sum / first_people.contour.size(), y_sum / first_people.contour.size());
+        for (int i = 0; i < people_num; i++) {
+            unsigned int x_sum = 0;
+            unsigned int y_sum = 0;
+            unsigned int min = 3000000;
 
-        for (auto &point : first_people.contour)
-        {
-            unsigned int distance = points_distance(point, std::make_shared<Point2i>(first_temp_center));
-            if ( distance < min)
+            for (auto &point : peoples[i]->contour)
             {
-                min = distance;
-                first_new_center.x = point->x;
-                first_new_center.y = point->y;
+                x_sum += point->x;
+                y_sum += point->y;
+                input.at<unsigned char>(point->x, point->y) = 50;
             }
-        }
+            temp_center[i] = Point2i(x_sum / peoples[i]->contour.size(), y_sum / peoples[i]->contour.size());
 
-        x_sum = 0;
-        y_sum = 0;
-        min = 3000000;
-        for (auto &point : second_people.contour)
-        {
-            x_sum += point->x;
-            y_sum += point->y;
-            input.at<unsigned char>(point->x, point->y) = 50;
-        }
-        second_temp_center = Point2i(x_sum / second_people.contour.size(), y_sum / second_people.contour.size());
-
-        for (auto &point : second_people.contour)
-        {
-            unsigned int distance = points_distance(point, std::make_shared<Point2i>(second_temp_center));
-            if ( distance < min)
+            // Find neareast point to be center
+            for (auto &point : peoples[i]->contour)
             {
-                min = distance;
-                second_new_center.x = point->x;
-                second_new_center.y = point->y;
+                unsigned int distance = points_distance(point, std::make_shared<Point2i>(temp_center[i]));
+                if ( distance < min)
+                {
+                    min = distance;
+                    new_center[i].x = point->x;
+                    new_center[i].y = point->y;
+                }
             }
+            // Clear contours
+            peoples[i]->contour.clear();
+            //cout << new_center[i].x << "," << new_center[i].y << " " << endl;
         }
-
-        first_people.contour.clear();
-        second_people.contour.clear();
-
-        // cout  << first_new_center.x << "," << first_new_center.y  << " ";
-        // cout  << second_new_center.x << "," << second_new_center.y << " " << endl;
     }
 
-    Point2i a(first_new_center.y, first_new_center.x);
-    Point2i b(second_new_center.y, second_new_center.x);
-    line(input, a, b, 255, 1);
-    cout << "(" << first_new_center.x << "," << first_new_center.y  << ")" << endl;
-    cout << "(" << second_new_center.x << "," << second_new_center.y  << ")" << endl;
 
-    input.at<unsigned char>(first_new_center.x, first_new_center.y) = 255;
-    input.at<unsigned char>(second_new_center.x, second_new_center.y) = 255;
+    for (int i = 0; i < people_num; i++)
+    {
+        cout << "(" << new_center[i].x << "," << new_center[i].y  << ")" << endl;
+        Point2i a(new_center[i].y - 50, new_center[i].x-50);
+        Point2i b(new_center[i].y + 50, new_center[i].x+50);
+        rectangle(input, a, b, (255,255,255));
 
+        // Point2i center(new_center[i].y, new_center[i].x);
+        // circle(input, center, 2, (255, 255, 255));
+        //input.at<unsigned char>(new_center[i].x, new_center[i].y) = 255;
+    }
+//    cout << "2-";
+    return new_center;
 }
 
 ///////////////////////////////////////////////////////////////////////*/
@@ -263,6 +274,7 @@ int main(int argc, const char** argv)
     // some faster than mat image container
     UMat  flowUmat, prevgray;
     Mat src_pre;
+    Mat diff_all;
 
     for (;;)
     {
@@ -278,6 +290,7 @@ int main(int argc, const char** argv)
             Mat src;
             Mat src_gray;
             Mat grad;
+            Mat planes[3];
 
             const char* window_name = "Sobel Demo - Simple Edge Detector";
             int scale = 1;
@@ -293,6 +306,11 @@ int main(int argc, const char** argv)
             GaussianBlur( src, src, Size(3,3), 0, 0, BORDER_DEFAULT );
             //![reduce_noise]
 
+            // //![split planes]
+            // split(src, planes);
+            // planes[0].copyTo(src_gray);
+            // //![split planes]
+
             //![convert_to_gray]
             cvtColor( src, src_gray, COLOR_BGR2GRAY );
             //![convert_to_gray]
@@ -302,6 +320,7 @@ int main(int argc, const char** argv)
             if (cnt == 0)
             {
                 src_gray.copyTo(diff);
+                src_gray.copyTo(diff_all);
             }
             else
             {
@@ -310,6 +329,21 @@ int main(int argc, const char** argv)
             }
             src_gray.copyTo(src_pre);
 
+            // if (cnt != 0 )
+            // {
+            //     if (cnt%4 == 0 )
+            //     {
+            //         diff.copyTo(diff_all);
+            //     }
+            //     else{
+            //         for (int i = 0; i < diff.cols; i++)
+            //             for (int j = 0; j < diff.rows; j++)
+            //             {
+            //                 if (diff.at<unsigned char>(j, i) == 255)
+            //                     diff_all.at<unsigned char>(j, i) = 255;
+            //             }
+            //     }
+            // }
 
             /**/
 
@@ -370,16 +404,25 @@ int main(int argc, const char** argv)
                     }
                 }
 
-            k_means_cluster(mix);
-            //![display]
-            //namedWindow("soble", WINDOW_AUTOSIZE);
-            // imshow( "src", src_gray );
-            // imshow( "sobel", grad);
-            // imshow( "diff", diff );
-            // imshow( "mix", mix );
+            People first, second, third;
+            peoples.push_back(std::make_shared<People>(first));
+            peoples.push_back(std::make_shared<People>(second));
+            peoples.push_back(std::make_shared<People>(third));
 
+            vector<Point2i > center = k_means_cluster(mix);
+
+            // Draw in origin video
+            if(center.begin() != center.end()) {
+                for (auto &point : center)
+                {
+                    Point2i a(point.y - 50, point.x-50);
+                    Point2i b(point.y + 50, point.x+50);
+                    rectangle(src_gray, a, b, (255,255,255));
+                }
+            }
+            //![display]
             ShowManyImages("Image", 4, src_gray, grad, diff, mix);
-            waitKey(200);
+            waitKey(100);
             //![display]
 
             // ss<< name << setprecision(3) <<cnt<<type;
