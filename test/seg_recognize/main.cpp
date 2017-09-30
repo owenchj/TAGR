@@ -1,11 +1,8 @@
-#include <stdio.h>
-#include <iostream>
-#include <iomanip>
-#include <stdarg.h>
 #include <stdlib.h>     /* srand, rand */
 #include <time.h>       /* time */
 
 #include "People.h"
+#include "image_util.h"
 #include "segment/image.h"
 #include "segment/misc.h"
 #include "segment/pnmfile.h"
@@ -20,11 +17,16 @@
 
 using PeoplePtr = std::shared_ptr<People>;
 
+// Const Parameters
 const unsigned int thred_sobel = 50;
 const unsigned int thred_diff = 10;
 const float sigma = 0.5;
 const float k_value = 500;
 const float min_size = 50;
+
+// Viriables
+int change_rate = 0;
+Point2i pre_real_center;
 
 unsigned int people_num = 1;
 
@@ -36,8 +38,13 @@ vector<Point2i > new_center;
 
 vector<unsigned int > indexs;
 
-unsigned int points_distance(Point2iPtr first, Point2iPtr second) {
-    return (abs(first->x-second->x) + abs(first->y-second->y));
+int points_euclideanDist(Point2i &p, Point2i &q) {
+    Point2i diff = p - q;
+    return cv::sqrt(diff.x * diff.x + diff.y * diff.y);
+}
+
+int points_distance(Point2iPtr p, Point2iPtr q) {
+    return (abs(p->x - q->x) + abs(p->y - q->y));
 }
 
 void draw_rectangle(Mat input, Point2i p, int w, int h) {
@@ -66,6 +73,7 @@ vector<Point2i> &k_means_cluster(Mat &input)
             if (input.at<unsigned char>(i, j) == 255)
                 total_points.push_back(Point2i(i,j));
         }
+
     if (total_points.size() == 0) return new_center;
 
     // Initialize random seed
@@ -87,7 +95,7 @@ vector<Point2i> &k_means_cluster(Mat &input)
         //cout << index << " "<< total_points.size() << endl;
     }
 
-    // Start
+    // Start clustering
     while (1) {
         unsigned int stop_flag=0;
         for (int i = 0; i < people_num; i++) {
@@ -164,143 +172,35 @@ vector<Point2i> &k_means_cluster(Mat &input)
     return new_center;
 }
 
-///////////////////////////////////////////////////////////////////////*/
-
-void ShowManyImages(string title, int nArgs, ...) {
-    int size;
-    int i;
-    int m, n;
-    int x, y;
-
-    // w - Maximum number of images in a row
-    // h - Maximum number of images in a column
-    int w, h;
-
-    // scale - How much we have to resize the image
-    float scale;
-    int max;
-
-    // If the number of arguments is lesser than 0 or greater than 12
-    // return without displaying
-    if(nArgs <= 0) {
-        printf("Number of arguments too small....\n");
-        return;
-    }
-    else if(nArgs > 14) {
-        printf("Number of arguments too large, can only handle maximally 12 images at a time ...\n");
-        return;
-    }
-    // Determine the size of the image,
-    // and the number of rows/cols
-    // from number of arguments
-    else if (nArgs == 1) {
-        w = h = 1;
-        size = 300;
-    }
-    else if (nArgs == 2) {
-        w = 2; h = 1;
-        size = 300;
-    }
-    else if (nArgs == 3 || nArgs == 4) {
-        w = 2; h = 2;
-        size = 300;
-    }
-    else if (nArgs == 5 || nArgs == 6) {
-        w = 3; h = 2;
-        size = 200;
-    }
-    else if (nArgs == 7 || nArgs == 8) {
-        w = 4; h = 2;
-        size = 200;
-    }
-    else {
-        w = 4; h = 3;
-        size = 150;
-    }
-
-    // Create a new 3 channel image
-    Mat DispImage = Mat::zeros(Size(100 + size*w, 60 + size*h), CV_8UC1);
-
-    // Used to get the arguments passed
-    va_list args;
-    va_start(args, nArgs);
-
-    // Loop for nArgs number of arguments
-    for (i = 0, m = 20, n = 20; i < nArgs; i++, m += (20 + size)) {
-        // Get the Pointer to the IplImage
-        Mat img = va_arg(args, Mat);
-
-        // Check whether it is NULL or not
-        // If it is NULL, release the image, and return
-        if(img.empty()) {
-            printf("Invalid arguments");
-            return;
-        }
-
-        // Find the width and height of the image
-        x = img.cols;
-        y = img.rows;
-
-        // Find whether height or width is greater in order to resize the image
-        max = (x > y)? x: y;
-
-        // Find the scaling factor to resize the image
-        scale = (float) ( (float) max / size );
-
-        // Used to Align the images
-        if( i % w == 0 && m!= 20) {
-            m = 20;
-            n+= 20 + size;
-        }
-
-        // Set the image ROI to display the current image
-        // Resize the input image and copy the it to the Single Big Image
-        Rect ROI(m, n, (int)( x/scale ), (int)( y/scale ));
-        Mat temp; resize(img,temp, Size(ROI.width, ROI.height));
-        temp.copyTo(DispImage(ROI));
-    }
-
-    // Create a new window, and show the Single Big Image
-    namedWindow( title, 1 );
-    imshow( title, DispImage);
-    // End the number of arguments
-    va_end(args);
-}
 
 int main(int argc, const char** argv)
 {
-    stringstream sname;
+    int cnt = 0;
 
+    stringstream sname;
     string name = "result_";
     string type = ".ppm";
-    int cnt = 0;
+
     // add your file name
     VideoCapture cap("/home/jchen/Pictures/TAGR/samples/real_train.avi");
 
-
-    Mat flow, frame;
-    // some faster than mat image container
-    UMat  flowUmat, prevgray;
     Mat src_pre;
     Mat diff_all;
 
     for (;;)
     {
-
         bool Is = cap.grab();
         if (Is == false) {
             // if video capture failed
             cout << "Video Capture Fail" << endl;
             break;
-        }
-        else {
+        } else {
 
             Mat src;
             Mat src_gray;
             Mat grad;
             Mat planes[3];
 
-            const char* window_name = "Sobel Demo - Simple Edge Detector";
             int scale = 1;
             int delta = 0;
             int ddepth = CV_16S;
@@ -378,8 +278,13 @@ int main(int argc, const char** argv)
             /// Total Gradient (approximate)
             addWeighted( abs_grad_x, 0.5, abs_grad_y, 0.5, 0, grad );
             //![blend]
-            threshold( grad, grad, thred_sobel, 255, 0);
 
+            //![threshold]
+            /// do threshold
+            threshold( grad, grad, thred_sobel, 255, 0);
+            //![threshold]
+
+            // Add movement and edge points together to Mat mix
             Mat mix = Mat::zeros( grad.size(), CV_8UC1 );
 
             for (int i = 0; i < grad.cols; i++)
@@ -405,10 +310,7 @@ int main(int argc, const char** argv)
 
                         // Check empty meighbours maxium 8,means noise points
                         if (empty_neighbours == 8)
-                        {
                             mix.at<unsigned char>(j, i) = 0;
-                            //cout << empty_neighbours <<" ";
-                        }
                     }
                 }
 
@@ -426,14 +328,48 @@ int main(int argc, const char** argv)
                 {
                     center_sum += point;
                     draw_rectangle(src_gray, point, 50, 50);
-                    cout << "(" << point.y << "," << point.x << ")" << endl;
+                    cout << "Center = (" << point.y << "," << point.x << ")" << endl;
                 }
             }
             real_center = center_sum / (int)people_num;
-            draw_rectangle(mix, real_center, 60, 100);
 
+            if(pre_real_center == Point2i(0,0)) {
+                pre_real_center = real_center;
+            } else {
+                int center_bias = points_distance(std::make_shared<Point2i>(pre_real_center), std::make_shared<Point2i>(real_center));
+                cout << change_rate << "center_bias = " << pre_real_center << " - " << real_center << " = " << center_bias << endl;
+
+                // If center's bias is too large, it has the possibilities to be a noise
+                // So do not update previous center, waiting
+                if (center_bias > 100)
+                    change_rate++;
+                else
+                {
+                    if(change_rate > -10) change_rate--;
+                    pre_real_center = real_center;
+                }
+
+                // If the new center is the truth, update previous center
+                if(change_rate > 5)
+                {
+                    change_rate = 0;
+                    pre_real_center = real_center;
+                }
+            }
+
+
+            Mat roi_seg;
+            if (change_rate){
+                draw_rectangle(mix, pre_real_center, 60, 100);
+                roi_seg = roi_rectangle(src, pre_real_center, 60, 100);
+            } else {
+                draw_rectangle(mix, real_center, 60, 100);
+                roi_seg = roi_rectangle(src, real_center, 60, 100);
+            }
+
+            //![segmentation]
+            /// segmentation
             // Extra intresting segmention region
-            Mat roi_seg = roi_rectangle(src, real_center, 60, 100);
             Mat aroi(roi_seg.rows, roi_seg.cols, CV_8UC3);
 
             // Create a window for display
@@ -452,14 +388,15 @@ int main(int argc, const char** argv)
                 }
             }
 
-            //![display]
-            ShowManyImages("Image", 4, src_gray, grad, diff, mix);
-            waitKey(1000);
-            //![display]
-
             int num_ccs;
             image<rgb> *seg = segment_image(seg_input, sigma, k_value, min_size, &num_ccs);
             printf("got %d components\n", num_ccs);
+            //![segmentation]
+
+            //![display]
+            ShowManyImages("Image", 4, src_gray, grad, diff, mix);
+            waitKey(100);
+            //![display]
 
             // Create file name and store image file
             sname<< name << setprecision(3) <<cnt <<type;
