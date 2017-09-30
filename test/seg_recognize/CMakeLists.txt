@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.0)
+add_compile_options(-std=c++11)
+project( seg_recognize )
+find_package( OpenCV REQUIRED )
+add_executable( seg_recognize main.cpp )
+target_link_libraries( seg_recognize ${OpenCV_LIBS} )

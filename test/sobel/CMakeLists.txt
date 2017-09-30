@@ -1,6 +1,0 @@
-cmake_minimum_required(VERSION 3.0)
-add_compile_options(-std=c++11)
-project( Sobel )
-find_package( OpenCV REQUIRED )
-add_executable( Sobel main.cpp )
-target_link_libraries( Sobel ${OpenCV_LIBS} )
