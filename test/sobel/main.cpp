@@ -6,13 +6,27 @@
 #include <time.h>       /* time */
 
 #include "People.h"
+#include "segment/image.h"
+#include "segment/misc.h"
+#include "segment/pnmfile.h"
+#include "segment/segment-image.h"
+
+#define MY_WIDTH  352
+#define MY_HEIGHT 288
+
+#define min(x) (x < 0 ? 0 : x)
+#define Wmax(x) (x > MY_WIDTH ? MY_WIDTH : x)
+#define Hmax(x) (x > MY_HEIGHT ? MY_HEIGHT : x)
 
 using PeoplePtr = std::shared_ptr<People>;
 
 const unsigned int thred_sobel = 50;
 const unsigned int thred_diff = 10;
+const float sigma = 0.5;
+const float k_value = 500;
+const float min_size = 50;
 
-unsigned int people_num = 2;
+unsigned int people_num = 1;
 
 vector<PeoplePtr > peoples;
 vector<Point2i > total_points;
@@ -26,9 +40,20 @@ unsigned int points_distance(Point2iPtr first, Point2iPtr second) {
     return (abs(first->x-second->x) + abs(first->y-second->y));
 }
 
+void draw_rectangle(Mat input, Point2i p, int w, int h) {
+    Point2i a(p.y - w, p.x-h);
+    Point2i b(p.y + w, p.x+h);
+    rectangle(input, a, b, (255,255,255));
+}
+
+Mat roi_rectangle(Mat input, Point2i p, int w, int h) {
+    Point2i a(min(p.y - w), min(p.x-h));
+    Point2i b(Wmax(p.y + w), Hmax(p.x+h));
+    return input( Rect(a, b) );
+}
+
 vector<Point2i> &k_means_cluster(Mat &input)
 {
-    cout << "0-";
     // Initialization
     total_points.clear();
     temp_center.clear();
@@ -61,7 +86,6 @@ vector<Point2i> &k_means_cluster(Mat &input)
         new_center.push_back(Point2i(0,0));
         //cout << index << " "<< total_points.size() << endl;
     }
-//    cout << "1-";
 
     // Start
     while (1) {
@@ -117,6 +141,7 @@ vector<Point2i> &k_means_cluster(Mat &input)
                 y_sum += point->y;
                 input.at<unsigned char>(point->x, point->y) = 50;
             }
+
             temp_center[i] = Point2i(x_sum / peoples[i]->contour.size(), y_sum / peoples[i]->contour.size());
 
             // Find neareast point to be center
@@ -132,23 +157,10 @@ vector<Point2i> &k_means_cluster(Mat &input)
             }
             // Clear contours
             peoples[i]->contour.clear();
-            //cout << new_center[i].x << "," << new_center[i].y << " " << endl;
+            // cout << new_center[i].y << "," << new_center[i].x << " " << endl;
         }
     }
 
-
-    for (int i = 0; i < people_num; i++)
-    {
-        cout << "(" << new_center[i].x << "," << new_center[i].y  << ")" << endl;
-        Point2i a(new_center[i].y - 50, new_center[i].x-50);
-        Point2i b(new_center[i].y + 50, new_center[i].x+50);
-        rectangle(input, a, b, (255,255,255));
-
-        // Point2i center(new_center[i].y, new_center[i].x);
-        // circle(input, center, 2, (255, 255, 255));
-        //input.at<unsigned char>(new_center[i].x, new_center[i].y) = 255;
-    }
-//    cout << "2-";
     return new_center;
 }
 
@@ -160,16 +172,16 @@ void ShowManyImages(string title, int nArgs, ...) {
     int m, n;
     int x, y;
 
-// w - Maximum number of images in a row
-// h - Maximum number of images in a column
+    // w - Maximum number of images in a row
+    // h - Maximum number of images in a column
     int w, h;
 
-// scale - How much we have to resize the image
+    // scale - How much we have to resize the image
     float scale;
     int max;
 
-// If the number of arguments is lesser than 0 or greater than 12
-// return without displaying
+    // If the number of arguments is lesser than 0 or greater than 12
+    // return without displaying
     if(nArgs <= 0) {
         printf("Number of arguments too small....\n");
         return;
@@ -178,9 +190,9 @@ void ShowManyImages(string title, int nArgs, ...) {
         printf("Number of arguments too large, can only handle maximally 12 images at a time ...\n");
         return;
     }
-// Determine the size of the image,
-// and the number of rows/cols
-// from number of arguments
+    // Determine the size of the image,
+    // and the number of rows/cols
+    // from number of arguments
     else if (nArgs == 1) {
         w = h = 1;
         size = 300;
@@ -206,14 +218,14 @@ void ShowManyImages(string title, int nArgs, ...) {
         size = 150;
     }
 
-// Create a new 3 channel image
+    // Create a new 3 channel image
     Mat DispImage = Mat::zeros(Size(100 + size*w, 60 + size*h), CV_8UC1);
 
-// Used to get the arguments passed
+    // Used to get the arguments passed
     va_list args;
     va_start(args, nArgs);
 
-// Loop for nArgs number of arguments
+    // Loop for nArgs number of arguments
     for (i = 0, m = 20, n = 20; i < nArgs; i++, m += (20 + size)) {
         // Get the Pointer to the IplImage
         Mat img = va_arg(args, Mat);
@@ -248,25 +260,21 @@ void ShowManyImages(string title, int nArgs, ...) {
         temp.copyTo(DispImage(ROI));
     }
 
-// Create a new window, and show the Single Big Image
+    // Create a new window, and show the Single Big Image
     namedWindow( title, 1 );
     imshow( title, DispImage);
-//waitKey();
-
-// End the number of arguments
+    // End the number of arguments
     va_end(args);
 }
 
 int main(int argc, const char** argv)
 {
-    stringstream ss;
+    stringstream sname;
 
-    string name = "sobel_";
-    string type = ".jpg";
+    string name = "result_";
+    string type = ".ppm";
     int cnt = 0;
     // add your file name
-    //VideoCapture cap("/home/jchen/Pictures/TAGR/samples/g01s04.avi");
-    //VideoCapture cap("/home/jchen/Pictures/TAGR/samples/train_front.avi");
     VideoCapture cap("/home/jchen/Pictures/TAGR/samples/real_train.avi");
 
 
@@ -396,11 +404,11 @@ int main(int argc, const char** argv)
                             }
 
                         // Check empty meighbours maxium 8,means noise points
-                        // if (empty_neighbours > 6)
-                        // {
-                        //     mix.at<unsigned char>(j, i) = 0;
-                        //     //cout << empty_neighbours <<" ";
-                        // }
+                        if (empty_neighbours == 8)
+                        {
+                            mix.at<unsigned char>(j, i) = 0;
+                            //cout << empty_neighbours <<" ";
+                        }
                     }
                 }
 
@@ -410,24 +418,54 @@ int main(int argc, const char** argv)
             peoples.push_back(std::make_shared<People>(third));
 
             vector<Point2i > center = k_means_cluster(mix);
+            Point2i center_sum, real_center;
 
             // Draw in origin video
             if(center.begin() != center.end()) {
                 for (auto &point : center)
                 {
-                    Point2i a(point.y - 50, point.x-50);
-                    Point2i b(point.y + 50, point.x+50);
-                    rectangle(src_gray, a, b, (255,255,255));
+                    center_sum += point;
+                    draw_rectangle(src_gray, point, 50, 50);
+                    cout << "(" << point.y << "," << point.x << ")" << endl;
                 }
             }
+            real_center = center_sum / (int)people_num;
+            draw_rectangle(mix, real_center, 60, 100);
+
+            // Extra intresting segmention region
+            Mat roi_seg = roi_rectangle(src, real_center, 60, 100);
+            Mat aroi(roi_seg.rows, roi_seg.cols, CV_8UC3);
+
+            // Create a window for display
+            namedWindow( "Segment input", WINDOW_AUTOSIZE );
+            // Show our image inside it.
+            imshow( "Segment input", roi_seg);
+
+            // Convert mat to image format
+            image<rgb> *seg_input = new image<rgb>(roi_seg.cols, roi_seg.rows);
+
+            for (int y = 0; y < roi_seg.rows; y++) {
+                for (int x = 0; x < roi_seg.cols; x++) {
+                    imRef(seg_input, x, y).b = roi_seg.at<cv::Vec3b>(y,x)[0];
+                    imRef(seg_input, x, y).g = roi_seg.at<cv::Vec3b>(y,x)[1];
+                    imRef(seg_input, x, y).r = roi_seg.at<cv::Vec3b>(y,x)[2];
+                }
+            }
+
             //![display]
             ShowManyImages("Image", 4, src_gray, grad, diff, mix);
-            waitKey(100);
+            waitKey(1000);
             //![display]
 
-            // ss<< name << setprecision(3) <<cnt<<type;
-            // string filename = ss.str();
-            // ss.str("");
+            int num_ccs;
+            image<rgb> *seg = segment_image(seg_input, sigma, k_value, min_size, &num_ccs);
+            printf("got %d components\n", num_ccs);
+
+            // Create file name and store image file
+            sname<< name << setprecision(3) <<cnt <<type;
+            string filename = sname.str();
+            sname.str("");
+            savePPM(seg, filename.c_str());
             // imwrite(filename, grad);
             cnt++;
         }
