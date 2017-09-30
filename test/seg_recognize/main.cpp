@@ -8,6 +8,12 @@
 #include "segment/pnmfile.h"
 #include "segment/segment-image.h"
 
+// #define MY_WIDTH  320
+// #define MY_HEIGHT 240
+
+#define USE_COLOR    0
+#define MIX_EDGE_SEG 1
+
 #define MY_WIDTH  352
 #define MY_HEIGHT 288
 
@@ -18,12 +24,12 @@
 using PeoplePtr = std::shared_ptr<People>;
 
 // Const Parameters
-const unsigned int thred_sobel = 50;
-const unsigned int thred_diff = 10;
+const int thred_sobel = 50;
+const int thred_diff = 10;
 const float sigma = 0.5;
 const float k_value = 500;
 const float min_size = 50;
-
+const int center_bias = 5000;
 // Viriables
 int change_rate = 0;
 Point2i pre_real_center;
@@ -37,6 +43,29 @@ vector<Point2i > temp_center;
 vector<Point2i > new_center;
 
 vector<unsigned int > indexs;
+
+
+bool color_test(int color) {
+    return (color >= 40 && color <= 60);
+}
+
+int points_xDist(Point2i &p, Point2i &q) {
+    Point2i diff = p - q;
+    return (diff.x * diff.x);
+}
+
+int points_yDist(Point2i &p, Point2i &q) {
+    Point2i diff = p - q;
+    return (diff.y * diff.y);
+}
+
+int points_normalDist(Point2i &p, Point2i &q) {
+    return (points_xDist(p,q) + points_yDist(p,q));
+}
+
+int points_DistMove(Point2i &p, Point2i &q) {
+    return ((float)points_xDist(p,q) - (float)points_yDist(p,q));
+}
 
 int points_euclideanDist(Point2i &p, Point2i &q) {
     Point2i diff = p - q;
@@ -56,6 +85,7 @@ void draw_rectangle(Mat input, Point2i p, int w, int h) {
 Mat roi_rectangle(Mat input, Point2i p, int w, int h) {
     Point2i a(min(p.y - w), min(p.x-h));
     Point2i b(Wmax(p.y + w), Hmax(p.x+h));
+
     return input( Rect(a, b) );
 }
 
@@ -183,6 +213,7 @@ int main(int argc, const char** argv)
 
     // add your file name
     VideoCapture cap("/home/jchen/Pictures/TAGR/samples/real_train.avi");
+    //VideoCapture cap("/home/jchen/Pictures/TAGR/samples/g01s20.avi");
 
     Mat src_pre;
     Mat diff_all;
@@ -336,12 +367,14 @@ int main(int argc, const char** argv)
             if(pre_real_center == Point2i(0,0)) {
                 pre_real_center = real_center;
             } else {
-                int center_bias = points_distance(std::make_shared<Point2i>(pre_real_center), std::make_shared<Point2i>(real_center));
-                cout << change_rate << "center_bias = " << pre_real_center << " - " << real_center << " = " << center_bias << endl;
+                //int bias = points_distance(std::make_shared<Point2i>(pre_real_center), std::make_shared<Point2i>(real_center));
+                int bias = points_normalDist(pre_real_center, real_center);
+                float move_ratio = points_DistMove(pre_real_center, real_center);
+                cout << change_rate << "-center_bias = " << pre_real_center << " - " << real_center << " = " << bias << " with "<< move_ratio << endl;
 
                 // If center's bias is too large, it has the possibilities to be a noise
                 // So do not update previous center, waiting
-                if (center_bias > 100)
+                if (bias > center_bias)
                     change_rate++;
                 else
                 {
@@ -357,25 +390,21 @@ int main(int argc, const char** argv)
                 }
             }
 
+            Point2i final_center;
+            if (change_rate) final_center = pre_real_center;
+            else  final_center = real_center;
 
-            Mat roi_seg;
-            if (change_rate){
-                draw_rectangle(mix, pre_real_center, 60, 100);
-                roi_seg = roi_rectangle(src, pre_real_center, 60, 100);
-            } else {
-                draw_rectangle(mix, real_center, 60, 100);
-                roi_seg = roi_rectangle(src, real_center, 60, 100);
-            }
+            // Draw rectangle in mix
+            draw_rectangle(mix, final_center, 50, 100);
 
             //![segmentation]
             /// segmentation
             // Extra intresting segmention region
-            Mat aroi(roi_seg.rows, roi_seg.cols, CV_8UC3);
-
-            // Create a window for display
-            namedWindow( "Segment input", WINDOW_AUTOSIZE );
-            // Show our image inside it.
-            imshow( "Segment input", roi_seg);
+            Mat roi_seg = roi_rectangle(src, final_center, 50, 100);
+            #if USE_COLOR == 1
+            Mat color_seg;
+            roi_seg.copyTo(color_seg);
+            #endif
 
             // Convert mat to image format
             image<rgb> *seg_input = new image<rgb>(roi_seg.cols, roi_seg.rows);
@@ -385,24 +414,73 @@ int main(int argc, const char** argv)
                     imRef(seg_input, x, y).b = roi_seg.at<cv::Vec3b>(y,x)[0];
                     imRef(seg_input, x, y).g = roi_seg.at<cv::Vec3b>(y,x)[1];
                     imRef(seg_input, x, y).r = roi_seg.at<cv::Vec3b>(y,x)[2];
+
+                    #if USE_COLOR == 1
+                    if (color_test(roi_seg.at<cv::Vec3b>(y,x)[0])
+                        && color_test(roi_seg.at<cv::Vec3b>(y,x)[1])
+                        && color_test(roi_seg.at<cv::Vec3b>(y,x)[2]))
+                    {
+                        color_seg.at<cv::Vec3b>(y,x)[0] = 255;
+                        color_seg.at<cv::Vec3b>(y,x)[1] = 255;
+                        color_seg.at<cv::Vec3b>(y,x)[2] = 0;
+                    }
+                    #endif
                 }
             }
 
             int num_ccs;
             image<rgb> *seg = segment_image(seg_input, sigma, k_value, min_size, &num_ccs);
-            printf("got %d components\n", num_ccs);
+            printf("SegC = %d\n", num_ccs);
             //![segmentation]
 
             //![display]
             ShowManyImages("Image", 4, src_gray, grad, diff, mix);
-            waitKey(100);
+            waitKey(1000);
             //![display]
 
+            // Create a window for display
+            namedWindow( "Segment input", WINDOW_AUTOSIZE );
+            // Show segment input image
+            imshow( "Segment input", roi_seg);
+
+            // Convert image format to mat
+            Mat seg_result(roi_seg.rows, roi_seg.cols, CV_8UC3);
+            for (int y = 0; y < roi_seg.rows; y++) {
+                for (int x = 0; x < roi_seg.cols; x++) {
+                    seg_result.at<cv::Vec3b>(y,x)[0] = imRef(seg, x, y).b;
+                    seg_result.at<cv::Vec3b>(y,x)[1] = imRef(seg, x, y).g;
+                    seg_result.at<cv::Vec3b>(y,x)[2] = imRef(seg, x, y).r;
+
+                    #if MIX_EDGE_SEG == 1
+                    // Mix edge and segments
+                    if (grad.at<uchar>(y + final_center.x - (roi_seg.rows >> 1), x + final_center.y - (roi_seg.cols >> 1)) == 255) {
+                        seg_result.at<cv::Vec3b>(y,x)[0] = 0;
+                        seg_result.at<cv::Vec3b>(y,x)[1] = 0;
+                        seg_result.at<cv::Vec3b>(y,x)[2] = 0;
+                    }
+                    #endif
+                }
+            }
+
+            circle(seg_result, Point2i(seg_result.cols>>1, seg_result.rows>>1), 3, Scalar(0, 0, 0), -1);
+            // Create a window for display
+            namedWindow( "Segment result", WINDOW_AUTOSIZE );
+            // Show segment result image
+            imshow( "Segment result", seg_result);
+
+            #if USE_COLOR == 1
+            // Create a window for display
+            namedWindow( "Color result", WINDOW_AUTOSIZE );
+            // Show color result image
+            imshow( "Color result", color_seg);
+            #endif
+
             // Create file name and store image file
-            sname<< name << setprecision(3) <<cnt <<type;
-            string filename = sname.str();
-            sname.str("");
-            savePPM(seg, filename.c_str());
+            // sname<< name << setprecision(3) <<cnt <<type;
+            // string filename = sname.str();
+            // sname.str("");
+            // savePPM(seg, filename.c_str());
+
             // imwrite(filename, grad);
             cnt++;
         }
