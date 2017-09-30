@@ -21,3 +21,6 @@ else
     # Test
     source/bgslibrary/build/bgslibrary -uf -fn=samples/gray.avi
 fi
+
+# Cutting video into pieces with fixd duration
+ffmpeg -i input.avi -ss 00:06:17 -t 00:07:30 -c copy output.avi
