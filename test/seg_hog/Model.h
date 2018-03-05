@@ -49,10 +49,11 @@ public:
     virtual ~Model () {}
 
 
-    void setHead (Point2i &p)            { head = p;}
-    void setBody (Point2i &p, int index) { body[index] = p;}
-    void setArm  (Point2i &p, int index) { arms[index] = p;}
-    void setHand (Point2i &p, int index) { hands[index] = p;}
+    void setHead (Point2i &p)           { head = p;}
+    void setBody (Point2i p, int index) { body[index] = p;}
+    void setArm  (Point2i p, int index) { arms[index] = p;}
+    void setHand (Point2i p, int index) { hands[index] = p;}
+    void setName (string n)             { name = n;}
 
     void drawHead (Mat model);
     void drawBody (Mat model);

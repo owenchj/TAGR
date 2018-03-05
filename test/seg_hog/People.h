@@ -2,6 +2,7 @@
 #include "opencv2/imgproc.hpp"
 #include "opencv2/objdetect/objdetect.hpp"
 #include "opencv2/video/tracking.hpp"
+#include <opencv2/video.hpp>
 #include <vector>
 #include <memory>
 #include <map>

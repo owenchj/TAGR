@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.0)
+add_compile_options(-std=c++11)
+project( tracking )
+find_package( OpenCV REQUIRED )
+add_executable( tracking tracking.cpp )
+target_link_libraries( tracking ${OpenCV_LIBS} )

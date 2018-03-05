@@ -67,11 +67,11 @@ int main(int argc, const char** argv)
 
 
                 // By y += 5, x += 5 you can specify the grid
-                for (int y = 0; y < original.rows; y += 5) {
-                    for (int x = 0; x < original.cols; x += 5)
+                for (int y = 0; y < original.rows; y += 20) {
+                    for (int x = 0; x < original.cols; x += 20)
                     {
                         // get the flow from y, x position * 10 for better visibility
-                        const Point2f flowatxy = flow.at<Point2f>(y, x) * 10;
+                        const Point2f flowatxy = flow.at<Point2f>(y, x);
                         // draw line at flow direction
                         line(original, Point(x, y), Point(cvRound(x + flowatxy.x), cvRound(y + flowatxy.y)), Scalar(255,0,0));
                         // draw initial point

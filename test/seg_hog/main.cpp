@@ -42,8 +42,11 @@ vector<Point2i > final_centers;
 // tracking
 struct TRACK {
     Point2i head;
-    int     start;
+    int     still;
+    Model   model;
+    vector<float> descriptors;
 };
+
 vector<TRACK > tracker;
 
 vector<Model> models;
@@ -59,6 +62,22 @@ struct HOG_RES {
     Point2i global;
     float   distance;
     int     count;
+};
+
+enum FEATURE {
+    HEAD_SAVE = 0,
+    HEAD_COMPARE,
+    BODY_SAVE,
+    BODY_COMPARE,
+    ARM_SAVE,
+    ARM_COMPARE,
+    HAND_SAVE,
+    HAND_COMPARE
+};
+
+enum ACTION{
+    FINDING =0,
+    TRACKING = 1
 };
 
 bool sortByDistance (const HOG_RES &i, const HOG_RES &j)
@@ -94,9 +113,16 @@ bool color_test(int color) {
 
 // In the motion range
 bool in_cluster(Point2i p, Point2i cluster ) {
-    return (p.y >= cluster.y - 100
-            && p.y <= cluster.y + 100
-            && p.x <= cluster.x - 10);
+    return (p.y >= cluster.y - 50
+            && p.y <= cluster.y + 50
+            && p.x <= cluster.x);
+}
+
+// In the head body range
+bool in_body(Point2i b, Point2i head ) {
+    return (b.y >= head.y - 30
+            && b.y <= head.y + 30
+            && b.x >= head.x + 40);
 }
 
 int points_xDist(Point2i &p, Point2i &q) {
@@ -113,23 +139,25 @@ int points_normalDist(Point2i &p, Point2i &q) {
     return (points_xDist(p,q) + points_yDist(p,q));
 }
 
-int points_DistMove(Point2i &p, Point2i &q) {
-    return ((float)points_xDist(p,q) - (float)points_yDist(p,q));
-}
-
 int points_euclideanDist(Point2i &p, Point2i &q) {
     Point2i diff = p - q;
     return cv::sqrt(diff.x * diff.x + diff.y * diff.y);
 }
 
-int points_distance(Point2i &p, Point2i &q) {
-    return (abs(p.x - q.x) + abs(p.y - q.y));
+int points_distance(Point2iPtr p, Point2iPtr q) {
+    return (abs(p->x - q->x) + abs(p->y - q->y));
 }
 
 void draw_rectangle(Mat input, Point2i p, int w, int h) {
     Point2i a(p.y - w, p.x-h);
     Point2i b(p.y + w, p.x+h);
     rectangle(input, a, b, (255,255,255));
+}
+
+void draw_rectangle_body(Mat input, Point2i p, int w, int h) {
+    Point2i a(p.y - w, p.x-h);
+    Point2i b(p.y + w, p.x+h);
+    rectangle(input, a, b, (255,255,255), -1);
 }
 
 Mat roi_rectangle(Mat input, Point2i p, int w, int h, Rect & rect, int half) {
@@ -147,40 +175,50 @@ Mat roi_rectangle(Mat input, Point2i p, int w, int h, Rect & rect, int half) {
     return input( rect );
 }
 
-vector< float > descriptors_feature;
-vector< float > descriptors_feature_sum;
+vector< float > descriptors_head;
+vector< float > descriptors_head_sum;
 int learn_count_g = 0;
-float HOG(Mat gray, int feature)
+float HOG(Mat gray, int feature, vector<float> descriptor_pre)
 {
     HOGDescriptor hog;
     hog.winSize = Size(40, 40);
     vector< float > descriptors;
 
-    if(feature)
+    if(feature % 2 == 0)
     {
-        learn_count_g++;
-        hog.compute( gray, descriptors_feature, Size( 8, 8 ), Size( 0, 0 ) );
 
-        for(int i =0; i < descriptors_feature.size(); i++)
+        if(feature == HEAD_SAVE)
         {
-            if(learn_count_g == 1)
-            {
-                descriptors_feature_sum.push_back(descriptors_feature[i]);
-            } else{
-                descriptors_feature_sum[i] += descriptors_feature[i];
-                descriptors_feature[i] = descriptors_feature_sum[i] / learn_count_g;
-            }
-        }
+            learn_count_g++;
+            hog.compute( gray, descriptors_head, Size( 8, 8 ), Size( 0, 0 ) );
 
+            for(int i =0; i < descriptors_head.size(); i++)
+            {
+                if(learn_count_g == 1)
+                {
+                    descriptors_head_sum.push_back(descriptors_head[i]);
+                } else{
+                    descriptors_head_sum[i] += descriptors_head[i];
+                    descriptors_head[i] = descriptors_head_sum[i] / learn_count_g;
+                }
+            }
+        } else if (feature == BODY_SAVE) {
+            //hog.compute( gray, descriptors_body, Size( 8, 8 ), Size( 0, 0 ) );
+        }
         return 0;
     }
     else
     {
         hog.compute( gray, descriptors, Size( 8, 8 ), Size( 0, 0 ) );
-        float sum = 0;
-        for(int i = 0; i < descriptors.size(); i++)
-            sum+= pow((descriptors_feature[i] - descriptors[i]), 2);
 
+        float sum = 0;
+        if (feature == HEAD_COMPARE) {
+            for(int i = 0; i < descriptors.size(); i++)
+                sum+= pow((descriptors_head[i] - descriptors[i]), 2);
+        } else if (feature == BODY_COMPARE) {
+            // for(int i = 0; i < descriptors.size(); i++)
+            //     sum+= pow((descriptors_body[i] - descriptors[i]), 2);
+        }
         descriptors.clear();
         return sum;
     }
@@ -244,40 +282,60 @@ float HOG_COLOR(Mat gray, int feature) {
             }
         }
 
-    if(feature)
+    if(feature % 2 == 0)
     {
-        learn_count_c++;
-        for(int j = 0; j < 4; j++)
-            for(int i = 0; i < 4; i++)
-                for(int k = 0; k < 32; k++)
-                {
-                    if(learn_count_c == 1)
+        if(feature == HEAD_SAVE) {
+            learn_count_c++;
+            for(int j = 0; j < 4; j++)
+                for(int i = 0; i < 4; i++)
+                    for(int k = 0; k < 32; k++)
                     {
-                        descriptors_color_feature_sum[j][i][k] = vect16[j][i][k];
-                        descriptors_color_feature[j][i][k] = descriptors_color_feature_sum[j][i][k];
-                    } else {
-                        descriptors_color_feature_sum[j][i][k] += vect16[j][i][k];
-                        descriptors_color_feature[j][i][k] = descriptors_color_feature_sum[j][i][k] / learn_count_c;
+                        if(learn_count_c == 1)
+                        {
+                            descriptors_color_feature_sum[j][i][k] = vect16[j][i][k];
+                            descriptors_color_feature[j][i][k] = descriptors_color_feature_sum[j][i][k];
+                        } else {
+                            descriptors_color_feature_sum[j][i][k] += vect16[j][i][k];
+                            descriptors_color_feature[j][i][k] = descriptors_color_feature_sum[j][i][k] / learn_count_c;
+                        }
                     }
-                }
+        } else if(feature == BODY_SAVE) {
+            for(int j = 0; j < 4; j++)
+                for(int i = 0; i < 4; i++)
+                    for(int k = 0; k < 32; k++)
+                    {
+                        descriptors_body_feature[j][i][k] = vect16[j][i][k];
+                    }
+
+        }
         return 0;
     } else {
         float sum = 0;
-        for(int j = 0; j < 4; j++)
-            for(int i = 0; i < 4; i++)
-                for(int k = 0; k < 32; k++)
-                    sum += pow((descriptors_color_feature[j][i][k] - vect16[j][i][k]), 2);
+
+        if(feature == HEAD_COMPARE) {
+            for(int j = 0; j < 4; j++)
+                for(int i = 0; i < 4; i++)
+                    for(int k = 0; k < 32; k++)
+                        sum += pow((descriptors_color_feature[j][i][k] - vect16[j][i][k]), 2);
+        } else if(feature == BODY_COMPARE) {
+            for(int j = 0; j < 4; j++)
+                for(int i = 0; i < 4; i++)
+                    for(int k = 0; k < 32; k++)
+                        sum += pow((descriptors_body_feature[j][i][k] - vect16[j][i][k]), 2);
+        }
+
         return sum;
     }
 }
 
-Point2i hog_head(Mat gray, Point2i center, string name, int track) {
+Point2i hog_head(Mat gray, Point2i center, string name, ACTION act) {
     //![segmentation]
     /// segmentation
     // Extra intresting segmention region
     Rect roi_rect;
     Mat roi_seg;
-    if(track) {
+
+    if(act == TRACKING) {
         roi_seg = roi_rectangle(gray, center, 40, 40, roi_rect, 0);
     } else {
         roi_seg = roi_rectangle(gray, center, 50, 100, roi_rect, 1);
@@ -286,10 +344,6 @@ Point2i hog_head(Mat gray, Point2i center, string name, int track) {
     //![HOG]
     /// HOG to find head
     int count = 0;
-    // stringstream sname;
-    // string patch_name = "hog";
-    // string type = ".jpg";
-
 
     vector<HOG_RES> hog_gradient;
     vector<HOG_RES> hog_color;
@@ -306,7 +360,7 @@ Point2i hog_head(Mat gray, Point2i center, string name, int track) {
                     .rect = rect,
                     .local = Point2i(y, x),
                     .global = Point2i(roi_rect.y + y, roi_rect.x + x),
-                    .distance = HOG(patch88, 0),
+                    .distance = HOG(patch88, HEAD_COMPARE),
                     .count = count
                 };
 
@@ -316,19 +370,11 @@ Point2i hog_head(Mat gray, Point2i center, string name, int track) {
                     .rect = rect,
                     .local = Point2i(y, x),
                     .global = Point2i(roi_rect.y + y, roi_rect.x + x),
-                    .distance = HOG_COLOR(patch88, 0),
+                    .distance = HOG_COLOR(patch88, HEAD_COMPARE),
                     .count = count
                 };
 
                 hog_color.push_back(color);
-
-                // Save patches
-                // sname<< patch_name << name << "_" << setprecision(3) << count <<type;
-                // imwrite(sname.str(), patch88);
-                // sname.str("");
-                // sname << "hog_seg" << name << type;
-                // imwrite(sname.str(), roi_seg);
-                // sname.str("");
                 count++;
             }
     }
@@ -349,8 +395,7 @@ Point2i hog_head(Mat gray, Point2i center, string name, int track) {
 
     if( min_index != -1)
     {
-        cout << "Head is " << hog_gradient[min_index].global << ' ' << hog_gradient[min_index].count << endl;
-
+        cout << "Head find is " << hog_gradient[min_index].global << ' ' << hog_gradient[min_index].count << endl;
         //draw_rectangle(gray, hog_gradient[min_index].global, 20, 20);
 
         return hog_gradient[min_index].global;
@@ -360,14 +405,120 @@ Point2i hog_head(Mat gray, Point2i center, string name, int track) {
     }
 }
 
-
-
-void seg_images(Mat src, Point2i center, string name) {
+Point2i hog_tracking(Mat gray, Point2i center, vector<float>&descriptors) {
     //![segmentation]
     /// segmentation
     // Extra intresting segmention region
     Rect roi_rect;
-    Mat roi_seg = roi_rectangle(src, center, 50, 100, roi_rect, 0);
+    Mat roi_seg;
+
+    roi_seg = roi_rectangle(gray, center, 40, 40, roi_rect, 0);
+
+    //![HOG]
+    /// HOG to find head
+    int count = 0;
+
+    vector<HOG_RES> hog_gradient;
+
+    // Compute hog
+    if (roi_seg.rows >= 40 && roi_seg.cols >= 40) {
+        for(int y = 20; y <= roi_seg.rows - 20; y += 10)
+            for(int x = 20; x <= roi_seg.cols - 20; x += 10)
+            {
+                Rect rect = Rect(Point2i(x - 20, y - 20), Point2i(x + 20, y + 20) );
+                Mat patch88 = roi_seg( rect );
+
+                HOG_RES gradient = {
+                    .rect = rect,
+                    .local = Point2i(y, x),
+                    .global = Point2i(roi_rect.y + y, roi_rect.x + x),
+                    .distance = HOG(patch88, HEAD_COMPARE, descriptors),
+                    .count = count
+                };
+
+                hog_gradient.push_back(gradient);
+
+                count++;
+            }
+    }
+    std::sort(hog_gradient.begin(), hog_gradient.end(), sortByDistance);
+    std::sort(hog_color.begin(), hog_color.end(), sortByDistance);
+
+    // Print result
+    // cout << "G min is " << hog_gradient[0].local << ' '<< hog_gradient[0].count << endl;
+    // cout << "C min is " << hog_color[0].local << ' '<< hog_color[0].count << endl;
+
+    // for(auto patch : hog_gradient)
+    //     cout << "G " << patch.distance << ' '<< patch.count << endl;
+    // for(auto patch : hog_color)
+    //     cout << "C " << patch.distance << ' '<< patch.count << endl;
+
+    //![HOG Min reasult Match for gradient and color ]
+    int min_index = minMatch(hog_gradient, hog_color);
+
+    if( min_index != -1)
+    {
+        cout << "Head find is " << hog_gradient[min_index].global << ' ' << hog_gradient[min_index].count << endl;
+        //draw_rectangle(gray, hog_gradient[min_index].global, 20, 20);
+
+        return hog_gradient[min_index].global;
+    } else {
+        cout << "No people found " << endl;
+        return Point2i(-1, -1);
+    }
+}
+
+void sobel(Mat src, Mat &src_gray, Mat &grad) {
+    //![variables]
+    int scale = 1;
+    int delta = 0;
+    int ddepth = CV_16S;
+
+    //![convert_to_gray]
+    cvtColor( src, src_gray, COLOR_BGR2GRAY );
+    //![convert_to_gray]
+
+    //![sobel]
+    /// Generate grad_x and grad_y
+    Mat grad_x, grad_y;
+    Mat abs_grad_x, abs_grad_y;
+
+    /// Gradient X
+    //Scharr( src_gray, grad_x, ddepth, 1, 0, scale, delta, BORDER_DEFAULT );
+    Sobel( src_gray, grad_x, ddepth, 1, 0, 3, scale, delta, BORDER_DEFAULT );
+
+    /// Gradient Y
+    //Scharr( src_gray, grad_y, ddepth, 0, 1, scale, delta, BORDER_DEFAULT );
+    Sobel( src_gray, grad_y, ddepth, 0, 1, 3, scale, delta, BORDER_DEFAULT );
+    //![sobel]
+
+    //![convert]
+    convertScaleAbs( grad_x, abs_grad_x );
+    convertScaleAbs( grad_y, abs_grad_y );
+    //![convert]
+
+    //![blend]
+    /// Total Gradient (approximate)
+    addWeighted( abs_grad_x, 0.5, abs_grad_y, 0.5, 0, grad );
+    //![blend]
+
+    //![threshold]
+    /// do threshold
+    threshold( grad, grad, thred_sobel, 255, 0);
+    //![threshold]
+}
+
+Point2i body_points_sum[4];
+Point2i *seg_images(Mat src, Mat mix, Point2i head, string name) {
+    //![segmentation]
+    /// segmentation
+    // Extra intresting segmention region
+    // Segment from head
+    Rect roi_rect;
+    Mat roi_seg = roi_rectangle(src, Point2i(head.x + 70, head.y), 50, 60, roi_rect, 0);
+
+    Rect mix_rect;
+    Mat  mix_seg = roi_rectangle(mix, Point2i(head.x + 70, head.y), 50, 60, mix_rect, 0);
 
     // Show input
     // string name_input = "Segment input" + name;
@@ -396,19 +547,77 @@ void seg_images(Mat src, Point2i center, string name) {
     Mat seg_result(roi_seg.rows, roi_seg.cols, CV_8UC3);
     for (int y = 0; y < roi_seg.rows; y++) {
         for (int x = 0; x < roi_seg.cols; x++) {
-            seg_result.at<cv::Vec3b>(y,x)[0] = imRef(seg, x, y).b;
-            seg_result.at<cv::Vec3b>(y,x)[1] = imRef(seg, x, y).g;
-            seg_result.at<cv::Vec3b>(y,x)[2] = imRef(seg, x, y).r;
+            {
+                seg_result.at<cv::Vec3b>(y,x)[0] = imRef(seg, x, y).b;
+                seg_result.at<cv::Vec3b>(y,x)[1] = imRef(seg, x, y).g;
+                seg_result.at<cv::Vec3b>(y,x)[2] = imRef(seg, x, y).r;
+            }
         }
     }
 
-    circle(seg_result, Point2i(seg_result.cols>>1, seg_result.rows>>1), 3, Scalar(0, 0, 0), -1);
+    //circle(seg_result, Point2i(seg_result.cols>>1, seg_result.rows>>1), 3, Scalar(0, 0, 0), -1);
+
+    // Calculate body
+    // Mat seg_gray, seg_grad;
+    // sobel(seg_result, seg_gray, seg_grad);
+
+    int count[4] = {0,0,0,0};
+
+    for (int i = 0; i < 4; i++) body_points_sum[i] = Point2i(0,0);
+
+    for (int y = 0; y < roi_seg.rows; y++)
+        for (int x = 0; x < roi_seg.cols; x++) {
+            if(mix_seg.at<uchar>(y,x) != 0) {
+                if(y < (roi_seg.rows >> 1)) {
+                    if(x < (roi_seg.cols >> 1)) {
+                        body_points_sum[0] += Point2i(x,y);
+                        count[0]++;
+                    } else {
+                        body_points_sum[1] += Point2i(x,y);
+                        count[1]++;
+                    }
+                } else {
+                    if(x < (roi_seg.cols >> 1)) {
+                        body_points_sum[3] += Point2i(x,y);
+                        count[3]++;
+                    } else {
+                        body_points_sum[2] += Point2i(x,y);
+                        count[2]++;
+                    }
+                }
+            }
+        }
+
+    for (int i = 0; i < 4; i++) {
+        if(count[i]) {
+            body_points_sum[i] /= count[i];
+        }
+
+        circle(seg_result, body_points_sum[i], 3, Scalar(255, 255, 255), -1);
+
+        if(body_points_sum[i] == Point2i(0,0))
+        {
+            if(i == 0)
+                body_points_sum[i] = Point2i(roi_seg.cols>>2, roi_seg.rows>>2);
+            else if(i == 1)
+                body_points_sum[i] = Point2i(roi_seg.cols - roi_seg.cols>>2, roi_seg.rows>>2);
+            else if(i == 2)
+                body_points_sum[i] = Point2i(roi_seg.cols - roi_seg.cols>>2, roi_seg.rows - roi_seg.rows>>2);
+            else
+                body_points_sum[i] = Point2i(roi_seg.cols>>2, roi_seg.rows - roi_seg.rows>>2);
+        }
+        cout << body_points_sum[i] << endl;
+
+        body_points_sum[i] += Point2i(roi_rect.x, roi_rect.y);
+    }
 
     string name_output = "Segment output" + name;
     // Create a window for display
     namedWindow( name_output, WINDOW_AUTOSIZE );
     // Show segment result image
     imshow( name_output, seg_result);
+
+    return body_points_sum;
 }
 
 vector<Point2i> k_means_cluster(Mat input)
@@ -426,7 +635,7 @@ vector<Point2i> k_means_cluster(Mat input)
                 total_points.push_back(Point2i(i,j));
         }
 
-    if (total_points.empty()) return new_center;
+    if (total_points.size() < 500) return new_center;
 
     // Initialize random seed
     srand (time(NULL));
@@ -448,10 +657,10 @@ vector<Point2i> k_means_cluster(Mat input)
     }
 
     // Start clustering
-    while (1) {
+    for(int loop = 0; loop < 5; loop++) {
         unsigned int stop_flag=0;
         for (int i = 0; i < people_num; i++) {
-            if (points_distance(new_center[i], peoples[i]->center) > 7)
+            if (points_distance(std::make_shared<Point2i>(new_center[i]), std::make_shared<Point2i>(peoples[i]->center)) > 7)
                 stop_flag++;
         }
 
@@ -472,8 +681,9 @@ vector<Point2i> k_means_cluster(Mat input)
             unsigned int index = 0;
             unsigned int drop_flag = 0;
 
+            Point2iPtr current_point = std::make_shared<Point2i>(total_points[i]);
             for (int i = 0; i < people_num; i++) {
-                unsigned int distance = points_distance(total_points[i], peoples[i]->center);
+                unsigned int distance = points_distance(current_point, std::make_shared<Point2i>(peoples[i]->center));
                 if (distance == 0) {
                     drop_flag++;
                     break;
@@ -484,8 +694,7 @@ vector<Point2i> k_means_cluster(Mat input)
                     }
                 }
             }
-            if(drop_flag == 0)
-                peoples[index]->contour.push_back(std::make_shared<Point2i>(total_points[i]));
+            if(drop_flag == 0)  peoples[index]->contour.push_back(current_point);
         }
 
         // Calculate new center
@@ -506,10 +715,7 @@ vector<Point2i> k_means_cluster(Mat input)
             // Find neareast point to be center
             for (auto &point : peoples[i]->contour)
             {
-                Point2i temp;
-                temp.x = point->x;
-                temp.y = point->y;
-                unsigned int distance = points_distance(temp, temp_center[i]);
+                unsigned int distance = points_distance(point, std::make_shared<Point2i>(temp_center[i]));
                 if ( distance < min)
                 {
                     min = distance;
@@ -589,7 +795,11 @@ void center_with_order(vector<Point2i> cluster_center){
 
 void add_into_tracker(TRACK track, Point2i center)
 {
-    if(tracker.size() == 0)
+    if(tracker.size() == 4)
+    {
+        return;
+    }
+    else if(tracker.size() == 0)
     {
         cout << "Find one people ! = " << track.head << endl;
         tracker.push_back(track);
@@ -613,55 +823,53 @@ void add_into_tracker(TRACK track, Point2i center)
     }
 }
 
-void tracking(Mat gray, vector<TRACK> &tracker, Point2i &center)
+void tracking(Mat gray, vector<TRACK> &tracker)
 {
     cout << "Tracking size "<< tracker.size() << endl;
 
     // Tracking, update new point
     for (auto &t : tracker)
     {
-        Point2i new_point = hog_head(gray, t.head, "Tracking", 1);
-
-        if(new_point != Point2i(-1, -1)) {
-            //if(points_normalDist(new_point, t.head) <= 500)
-            t.head = new_point;
-        }
+        Point2i new_point = hog_head(gray, t.head, "Tracking", TRACKING);
     }
 
     // Delete wrong tracker
     for (int i = 0; i < tracker.size(); i++)
     {
         // If it is not in the motion range
-        if(!in_cluster(tracker[i].head, center)) {
-            tracker.erase(tracker.begin() + i);
-            continue;
+        int is_in_cluser = 0;
+        for (auto &p : final_centers) {
+            if(in_cluster(tracker[i].head, p)) {
+                is_in_cluser = 1;
+                break;
+            }
         }
-        // And it is too close to one center
+        if (!is_in_cluser) tracker.erase(tracker.begin() + i);
+
+        // If it is still too long
+        if (tracker[i].still > 100) tracker.erase(tracker.begin() + i);
+
+        // And it is too close to one tracker
         for (int j = i+1; j < tracker.size(); j++)
         {
-            if(points_normalDist(tracker[i].head, tracker[j].head) < 100)
+            if(points_normalDist(tracker[i].head, tracker[j].head) <= 100)
                 tracker.erase(tracker.begin() + i);
         }
     }
 
-    // Draw final rectagnle
-    for (auto &t : tracker)
-    {
-        draw_rectangle(gray, t.head, 20, 20);
-    }
-
+    cout << "Tracking size - "<< tracker.size() << endl;
 }
 
-void model_show(vector<TRACK> track) {
+void model_show(vector<TRACK> &track) {
     int count = 0;
-    stringstream sname;
 
     for (auto &t : track)
     {
-        sname << count++;
-        Model m(t.head, sname.str());
-        m.update();
-        sname.str("");
+        stringstream ss;
+        ss.str("");
+        ss << count++;
+        t.model.setName("Model" + ss.str());
+        t.model.update();
     }
 }
 
@@ -674,8 +882,9 @@ int main(int argc, const char** argv)
     string type = ".ppm";
 
     // add your file name
-    VideoCapture cap("/home/jchen/Pictures/TAGR/samples/real_train_seg.avi");
-    //VideoCapture cap("/home/jchen/Pictures/TAGR/samples/g01s20.avi");
+    VideoCapture cap("/home/jchen/Pictures/TAGR/samples/HXD1C0828_20171009_033000.avi");
+    // VideoCapture cap("/home/jchen/Pictures/TAGR/samples/real_train_seg.avi");
+    // VideoCapture cap("/home/jchen/Pictures/TAGR/samples/output.avi");
 
     Mat src_pre;
 
@@ -707,24 +916,28 @@ int main(int argc, const char** argv)
 
     //![HOG_feature]
     Mat hog_gray = imread("head0.jpg", 0);
-    HOG(hog_gray, 1);
-    HOG_COLOR(hog_gray, 1);
+    HOG(hog_gray, HEAD_SAVE);
+    HOG_COLOR(hog_gray, HEAD_SAVE);
 
     hog_gray = imread("head1.jpg", 0);
-    HOG(hog_gray, 1);
-    HOG_COLOR(hog_gray, 1);
+    HOG(hog_gray, HEAD_SAVE);
+    HOG_COLOR(hog_gray, HEAD_SAVE);
 
     hog_gray = imread("head2.jpg", 0);
-    HOG(hog_gray, 1);
-    HOG_COLOR(hog_gray, 1);
+    HOG(hog_gray, HEAD_SAVE);
+    HOG_COLOR(hog_gray, HEAD_SAVE);
 
     hog_gray = imread("head3.jpg", 0);
-    HOG(hog_gray, 1);
-    HOG_COLOR(hog_gray, 1);
+    HOG(hog_gray, HEAD_SAVE);
+    HOG_COLOR(hog_gray, HEAD_SAVE);
 
     hog_gray = imread("head4.jpg", 0);
-    HOG(hog_gray, 1);
-    HOG_COLOR(hog_gray, 1);
+    HOG(hog_gray, HEAD_SAVE);
+    HOG_COLOR(hog_gray, HEAD_SAVE);
+
+    // BODY
+    hog_gray = imread("body.jpg", 0);
+    HOG_COLOR(hog_gray, BODY_SAVE);
     //![HOG_feature]
 
     for (;;)
@@ -737,7 +950,7 @@ int main(int argc, const char** argv)
         } else {
             Mat src;
             Mat src_gray;
-            Mat grad;
+            Mat src_grad;
 
             //![variables]
             int scale = 1;
@@ -752,14 +965,7 @@ int main(int argc, const char** argv)
             GaussianBlur( src, src, Size(3,3), 0, 0, BORDER_DEFAULT );
             //![reduce_noise]
 
-            //![convert_to_gray]
-            cvtColor( src, src_gray, COLOR_BGR2GRAY );
-            //![convert_to_gray]
-
-            //![Equalize Histogram ]
-            //equalizeHist( src_gray, src_gray );
-            //![Equalize Histogram ]
-
+            sobel(src, src_gray, src_grad);
             /**/
             Mat diff;
             if (cnt == 0)
@@ -783,35 +989,6 @@ int main(int argc, const char** argv)
             //![save_present_image_as_previous_to_next]
             /**/
 
-            //![sobel]
-            /// Generate grad_x and grad_y
-            Mat grad_x, grad_y;
-            Mat abs_grad_x, abs_grad_y;
-
-            /// Gradient X
-            //Scharr( src_gray, grad_x, ddepth, 1, 0, scale, delta, BORDER_DEFAULT );
-            Sobel( src_gray, grad_x, ddepth, 1, 0, 3, scale, delta, BORDER_DEFAULT );
-
-            /// Gradient Y
-            //Scharr( src_gray, grad_y, ddepth, 0, 1, scale, delta, BORDER_DEFAULT );
-            Sobel( src_gray, grad_y, ddepth, 0, 1, 3, scale, delta, BORDER_DEFAULT );
-            //![sobel]
-
-            //![convert]
-            convertScaleAbs( grad_x, abs_grad_x );
-            convertScaleAbs( grad_y, abs_grad_y );
-            //![convert]
-
-            //![blend]
-            /// Total Gradient (approximate)
-            addWeighted( abs_grad_x, 0.5, abs_grad_y, 0.5, 0, grad );
-            //![blend]
-
-            //![threshold]
-            /// do threshold
-            threshold( grad, grad, thred_sobel, 255, 0);
-            //![threshold]
-
             //![Mix_edge_and_difference_and_delete_alone_points]
             /// Add movement and edge points together to Mat mix
             Mat mix = Mat::zeros( src_gray.size(), CV_8UC1 );
@@ -829,7 +1006,7 @@ int main(int argc, const char** argv)
                             {
                                 if ((j+n >= 0) && (j+n < src_gray.rows)
                                     && (i+m >= 0) && (i+m < src_gray.cols)) {
-                                    if (grad.at<uchar>(j+n, i+m) == 255)
+                                    if (src_grad.at<uchar>(j+n, i+m) == 255)
                                         mix.at<uchar>(j+n, i+m) = 255;
                                     else
                                         empty_neighbours++;
@@ -846,11 +1023,14 @@ int main(int argc, const char** argv)
             //![Mix_edge_and_difference]
 
             //![Calculation_of_center_according_to_people_num]
-            vector<Point2i > cluster_center = k_means_cluster(mix);
+
+            vector<Point2i > cluster_center;
             Point2i real_center, center_sum = Point2i(0, 0);
 
+            cluster_center = k_means_cluster(mix);
+
             // Draw in origin video
-            if(cluster_center.begin() != cluster_center.end()) {
+            if(cluster_center.size() == people_num) {
 
                 //![Reorder_cluster_center_to_match_each_cluster]
                 center_with_order(cluster_center);
@@ -877,59 +1057,69 @@ int main(int argc, const char** argv)
                 //![Do_inertial_if_new_ordered_center_is_moving_dramatically-> final_center]
 
                 // Draw rectangle in mix
-                for (auto &point : final_centers)
-                {
-                    //cout << "final_cluster Center = (" << point.y << "," << point.x << ")" << endl;
-                    draw_rectangle(mix, point, 50, 100);
-                }
-            }
-
-            //![Test_one_people_mode_or_many_people_mode]
-            //![Segmentation_in_cluster]
-
-            if(people_num) {
-                sname << 0;
-                Point2i head_center = hog_head(src_gray, real_center, sname.str(), 0);
-
-                if(head_center != Point2i(-1, -1))
-                {
-                    TRACK t = {.head = head_center,
-                               .start = 1};
-
-                    add_into_tracker(t, real_center);
+                for (int i = 0; i < people_num; i++) {
+                    //cout << "final_cluster Center = (" << final_centers[i].y << "," << final_centers[i].x << ")" << endl;
+                    draw_rectangle(mix, final_centers[i], 128, 128);
                 }
 
-                //seg_images(src, real_center, sname.str());
-                sname.str("");
-            } else {
-                int show_cnt = 0;
+                //![Test_one_people_mode_or_many_people_mode]
+                //![Segmentation_in_cluster]
 
-                for (int i = 0; i < final_centers.size(); i++)
-                {
-                    sname << show_cnt++;
-                    Point2i head_center = hog_head(src_gray, final_centers[i], sname.str(), 0);
+                if(people_num == 1) {
+                    sname << 0;
+                    Point2i head_center = hog_head(src_gray, real_center, sname.str(), FINDING);
 
                     if(head_center != Point2i(-1, -1))
                     {
                         TRACK t = {.head = head_center,
-                                   .start = 1};
+                                   .still = 1};
 
-                        add_into_tracker(t, final_centers[i]);
+                        add_into_tracker(t, real_center);
                     }
-
-                    //seg_images(src, final_centers[i], sname.str());
                     sname.str("");
+                } else {
+                    int show_cnt = 0;
+
+                    for (int i = 0; i < final_centers.size(); i++)
+                    {
+                        sname << show_cnt++;
+
+                        Point2i head_center = hog_head(src_gray, final_centers[i], sname.str(), FINDING);
+
+                        if(head_center != Point2i(-1, -1))
+                        {
+                            TRACK t = {.head = head_center,
+                                       .still = 1};
+
+                            add_into_tracker(t, final_centers[i]);
+                        }
+                        sname.str("");
+                    }
                 }
             }
 
-            tracking(src_gray, tracker, real_center);
+            tracking(src_gray, tracker);
 
-            model_show(tracker);
+            // Segmentation
+            int show_cnt = 0;
+            for (auto &t : tracker)
+            {
+                sname << show_cnt++;
+                draw_rectangle(src_gray, t.head, 20, 20);
+                // Point2i *p = seg_images(src, src_grad, t.head, sname.str());
+                // t.model.setHead(t.head);
+
+                // for (int i = 0; i < 4; i++)
+                //     t.model.setBody(p[i],i);
+                sname.str("");
+            }
+
+            //model_show(tracker);
 
             //![display]
-            ShowManyImages("Image", 4, src_gray, grad, diff, mix);
-            //ShowManyImages("Image", 2, src_gray, grad);
-            waitKey(100000);
+            ShowManyImages("Image", 4, src_gray, src_grad, diff, mix);
+            //ShowManyImages("Image", 2, src_gray, src_grad);
+            waitKey(10000);
             //![display]
 
             cnt++;

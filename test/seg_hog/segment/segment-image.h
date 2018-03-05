@@ -148,32 +148,32 @@ image<rgb> *segment_image(image<rgb> *im, float sigma, float c, int min_size,
     for (int x = 0; x < width; x++) {
       int comp = u->find(y * width + x);
       components[comp]++;
-      imRef(output, x, y) = colors[comp];
+      //imRef(output, x, y) = colors[comp];
     }
   }
 
   // Draw only max region
-  /* std::vector<std::pair<int, int>> pairs; */
-  /* for (auto itr = components.begin(); itr != components.end(); ++itr) */
-  /* { */
-  /*   //cout << (*itr).first << ": "<< (*itr).second<< endl; */
-  /*   pairs.push_back(*itr); */
-  /* } */
+  std::vector<std::pair<int, int>> pairs;
+  for (auto itr = components.begin(); itr != components.end(); ++itr)
+  {
+    //cout << (*itr).first << ": "<< (*itr).second<< endl;
+    pairs.push_back(*itr);
+  }
 
-  /* sort(pairs.begin(), pairs.end(), [=](std::pair<int, int>& a, std::pair<int, int>& b) */
-  /*      { */
-  /*        return a.second > b.second; */
-  /*      } */
-  /*   ); */
+  sort(pairs.begin(), pairs.end(), [=](std::pair<int, int>& a, std::pair<int, int>& b)
+       {
+         return a.second > b.second;
+       }
+    );
 
-  /* //cout << pairs[0].first << endl; */
-  /* for (int y = 0; y < height; y++) { */
-  /*   for (int x = 0; x < width; x++) { */
-  /*     int comp = u->find(y * width + x); */
-  /*     if (comp == pairs[0].first) */
-  /*       imRef(output, x, y) = colors[comp]; */
-  /*   } */
-  /* } */
+  //cout << pairs[0].first << endl;
+  for (int y = 0; y < height; y++) {
+    for (int x = 0; x < width; x++) {
+      int comp = u->find(y * width + x);
+      if (comp == pairs[0].first)
+        imRef(output, x, y) = colors[comp];
+    }
+  }
 
   delete [] colors;
   delete u;
