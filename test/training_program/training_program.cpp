@@ -28,10 +28,11 @@ using namespace std;
 struct tree
 {
     Mat data;
+    int num;
     tree *left,*right;
 };
 
-vector<tree > Nodes(2000);
+vector<tree* > Nodes;
 int node_count=0;
 
 int sequence[PERSON_NUM * GESTURE_NUM][6] = {
@@ -159,8 +160,10 @@ int main(int argc, char* argv[])
 
         for(int i = 1; i < node_count; i++)
         {
-            imshow("hello", Nodes[i].data);
+            cout << Nodes[i]->num << endl;
+            imshow("hello", Nodes[i]->data);
             waitKey(2000);
+            delete Nodes[i];
         }
 
     } else {
@@ -530,18 +533,27 @@ tree *k2_means_hiearchy_binary_tree(vector<Mat > &SMD, vector<int > &prototypes,
     }
     cout << endl;
 
-    tree *root = &Nodes[node_count++];
+    Nodes.push_back(new tree());
+    tree *root = Nodes[node_count];
+    root->num  = node_count++;
 
     if(prototypes.size() == 1)
     {
-        tree *lnode = &Nodes[node_count++];
+        Nodes.push_back(new tree());
+        tree *lnode = Nodes[node_count];
 
+        lnode->num  = node_count++;
         lnode->data = SMD[prototypes[0]];
         root->left = lnode;
         return root;
     } else if(prototypes.size() == 2) {
-        tree *lnode = &Nodes[node_count++];
-        tree *rnode = &Nodes[node_count++];
+        Nodes.push_back(new tree());
+        tree *lnode = Nodes[node_count];
+        lnode->num  = node_count++;
+
+        Nodes.push_back(new tree());
+        tree *rnode = Nodes[node_count];
+        rnode->num  = node_count++;
 
         lnode->data = SMD[prototypes[0]];
         rnode->data = SMD[prototypes[1]];
