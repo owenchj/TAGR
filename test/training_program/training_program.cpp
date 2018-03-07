@@ -16,6 +16,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <fstream>
 using namespace cv;
 using namespace std;
 
@@ -30,9 +31,13 @@ struct tree
     Mat data;
     int num;
     tree *left,*right;
+    int left_num, right_num;
 };
 
 vector<tree* > Nodes;
+vector<tree* > Binary_Tree;
+vector<float > look_up_table;
+
 int node_count=0;
 
 int sequence[PERSON_NUM * GESTURE_NUM][6] = {
@@ -105,6 +110,12 @@ void k_means_cluster(vector<Mat > &SMD, vector<int > &prototypes, int k);
 
 tree *k2_means_hiearchy_binary_tree(vector<Mat > &SMD, vector<int > &prototypes, int k);
 
+float smd_distance(Mat src1, Mat src2) {
+    return norm(src1, src2, NORM_L2);
+}
+
+tree *fram_to_prototype(Mat smd);
+
 void help()
 {
     cout
@@ -158,13 +169,92 @@ int main(int argc, char* argv[])
 
         tree *root = k2_means_hiearchy_binary_tree(SMD, prototypes, 2);
 
-        for(int i = 1; i < node_count; i++)
-        {
-            cout << Nodes[i]->num << endl;
-            imshow("hello", Nodes[i]->data);
-            waitKey(2000);
-            delete Nodes[i];
+
+        // Serializing struct to student.data
+        ofstream look_up_file("look_up_table.data", ios::binary);
+        look_up_file << node_count << ' ';
+        // Create look_up_table
+        for(int i = 1; i < node_count; i++) {
+            for(int j = 1; j < node_count; j++)
+            {
+                look_up_file << smd_distance(Nodes[i]->data, Nodes[j]->data) << ' ';
+                look_up_table.push_back(smd_distance(Nodes[i]->data, Nodes[j]->data));
+            }
+            look_up_file <<endl;
         }
+
+        look_up_file.close();
+
+
+        // Serializing struct to student.data
+        ofstream output_file("binary_tree.data", ios::binary);
+        output_file << node_count << ' ';
+
+        for(int n = 0; n < node_count; n++)
+        {
+            // imshow("hello", Nodes[n]->data);
+            // waitKey(2000);
+
+            if(n) {
+                for(int i=0; i<Nodes[n]->data.rows; i++)
+                {
+                    for(int j=0; j<Nodes[n]->data.cols; j++)
+                    {
+                        output_file<<Nodes[n]->data.at<float>(i,j)<<"\t";
+                    }
+                    output_file<<endl;
+                }
+            }
+
+            output_file<< Nodes[n]->num << ' ';
+            if(Nodes[n]->left)
+                output_file<< Nodes[n]->left->num << ' ';
+            else
+                output_file<< -1 << ' ';
+
+            if(Nodes[n]->right)
+                output_file<< Nodes[n]->right->num << ' ';
+            else
+                output_file<< -1 << ' ';
+
+            delete Nodes[n];
+        }
+
+        output_file.close();
+
+        // Reading from it
+        // ifstream input_file("binary_tree.data", ios::binary);
+        // int total_node = 0;
+        // input_file >> total_node;
+
+        // for (int n = 0; n < total_node; n++) {
+        //     Binary_Tree.push_back(new tree());
+
+        //     if(n) {
+        //         Mat smd(Size(BOX_SIZE >> 3, BOX_SIZE >> 2), CV_32FC1, Scalar(0));
+
+        //         for(int i=0; i<BOX_SIZE >> 2; i++)
+        //         {
+        //             for(int j=0; j<BOX_SIZE >> 3; j++)
+        //             {
+        //                 input_file >> smd.at<float>(i,j);
+        //             }
+        //         }
+        //         Binary_Tree[n]->data = smd;
+        //     }
+
+        //     input_file >> Binary_Tree[n]->num;
+        //     input_file >> Binary_Tree[n]->left_num;
+        //     input_file >> Binary_Tree[n]->right_num;
+        // }
+        // input_file.close();
+
+
+        // for(int n = 1; n < node_count; n++)
+        // {
+        //     imshow("hello", Binary_Tree[n]->data);
+        //     waitKey(2000);
+        // }
 
     } else {
         //error in reading input parameters
@@ -399,15 +489,11 @@ void processVideo(const char* videoFilename, int seq, vector<Mat > &SMD) {
         // imshow("Shape descriptor", shape_descriptor);
         // imshow("Motion descriptor", motion_descriptor);
         //get the input from the keyboard
-        //keyboard = (char)waitKey( 30 );
-
+        // keyboard = (char)waitKey( 30 );
     }
+
     //delete capture object
     capture.release();
-}
-
-float smd_distance(Mat src1, Mat src2) {
-    return norm(src1, src2, NORM_L2);
 }
 
 void k_means_cluster(vector<Mat > &SMD, vector<int > &prototypes, int k) {
@@ -438,7 +524,7 @@ void k_means_cluster(vector<Mat > &SMD, vector<int > &prototypes, int k) {
 
     // Start clustering
     for(int loop = 0; loop < 20; loop++) {
-        // cout << loop << " Iteration" << endl;
+        cout << loop << " Iteration" << endl;
 
         unsigned int stop_flag = 0;
 
@@ -452,8 +538,7 @@ void k_means_cluster(vector<Mat > &SMD, vector<int > &prototypes, int k) {
         // Copy new to old
         for (int i = 0; i < k; i++) {
             prototypes[i] = new_center[i];
-            group[i].push_back(new_center[i]);
-            //cout << prototypes[i] << " " << group[i][0] << endl;
+            //cout << prototypes[i] << " " << endl;
         }
 
         // Distribute points
@@ -461,22 +546,16 @@ void k_means_cluster(vector<Mat > &SMD, vector<int > &prototypes, int k) {
         {
             float min = 100000;
             unsigned int index = 0;
-            unsigned int drop_flag = 0;
 
             for (int j = 0; j < k; j++) {
-                if (i == prototypes[j]) {
-                    drop_flag++;
-                    break;
-                } else {
-                    float distance = smd_distance(SMD[i], SMD[prototypes[j]]);
+                float distance = smd_distance(SMD[i], SMD[prototypes[j]]);
 
-                    if (distance < min) {
-                        min = distance;
-                        index = j;
-                    }
+                if (distance < min) {
+                    min = distance;
+                    index = j;
                 }
             }
-            if(drop_flag == 0)  group[index].push_back(i);
+            group[index].push_back(i);
         }
 
         // for (int i = 0; i < k; i++) {
@@ -494,7 +573,7 @@ void k_means_cluster(vector<Mat > &SMD, vector<int > &prototypes, int k) {
                 sum += SMD[p];
             }
 
-            Mat average = sum / group.size();
+            Mat average = sum / group[i].size();
 
             // Find neareast point to be center
             for (auto &p : group[i]) {
@@ -528,10 +607,10 @@ tree *k2_means_hiearchy_binary_tree(vector<Mat > &SMD, vector<int > &prototypes,
     vector<int > real_center;
     vector<int > left, right;
 
-    for (int i = 0; i < prototypes.size(); i++) {
-        cout << prototypes[i] << ' ';
-    }
-    cout << endl;
+    // for (int i = 0; i < prototypes.size(); i++) {
+    //     cout << prototypes[i] << ' ';
+    // }
+    // cout << endl;
 
     Nodes.push_back(new tree());
     tree *root = Nodes[node_count];
@@ -603,8 +682,7 @@ tree *k2_means_hiearchy_binary_tree(vector<Mat > &SMD, vector<int > &prototypes,
         // Copy new to old
         for (int i = 0; i < k; i++) {
             real_center[i] = new_center[i];
-            group[i].push_back(new_center[i]);
-            //cout << real_center[i] << " " << group[i][0] << endl;
+            //cout << real_center[i] << " " << endl;
         }
 
         // Distribute points
@@ -612,22 +690,16 @@ tree *k2_means_hiearchy_binary_tree(vector<Mat > &SMD, vector<int > &prototypes,
         {
             float min = 100000;
             unsigned int index = 0;
-            unsigned int drop_flag = 0;
 
             for (int j = 0; j < k; j++) {
-                if (i == real_center[j]) {
-                    drop_flag++;
-                    break;
-                } else {
-                    float distance = smd_distance(SMD[prototypes[i]], SMD[prototypes[real_center[j]]]);
+                float distance = smd_distance(SMD[prototypes[i]], SMD[prototypes[real_center[j]]]);
 
-                    if (distance < min) {
-                        min = distance;
-                        index = j;
-                    }
+                if (distance < min) {
+                    min = distance;
+                    index = j;
                 }
             }
-            if(drop_flag == 0)  group[index].push_back(i);
+            group[index].push_back(i);
         }
 
         // for (int i = 0; i < k; i++) {
@@ -643,10 +715,10 @@ tree *k2_means_hiearchy_binary_tree(vector<Mat > &SMD, vector<int > &prototypes,
             float min = 100000.0;
 
             for (auto &p : group[i]) {
-                sum += SMD[p];
+                sum += SMD[prototypes[p]];
             }
 
-            Mat average = sum / group.size();
+            Mat average = sum / group[i].size();
 
             average_SMD.push_back(average);
 

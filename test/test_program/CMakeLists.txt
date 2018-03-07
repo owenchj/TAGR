@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.0)
+add_compile_options(-std=c++11)
+project( test_program )
+find_package( OpenCV REQUIRED )
+add_executable( test_program test_program.cpp )
+target_link_libraries( test_program ${OpenCV_LIBS} )
