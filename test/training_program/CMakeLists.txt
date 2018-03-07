@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.0)
+add_compile_options(-std=c++11)
+project( training_program )
+find_package( OpenCV REQUIRED )
+add_executable( training_program training_program.cpp )
+target_link_libraries( training_program ${OpenCV_LIBS} )
