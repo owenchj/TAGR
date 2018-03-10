@@ -37,6 +37,7 @@ struct tree
 vector<tree* > Nodes;
 vector<tree* > Binary_Tree;
 vector<float > look_up_table;
+vector<vector<int> > Sequences;
 
 int node_count=0;
 
@@ -110,6 +111,8 @@ void k_means_cluster(vector<Mat > &SMD, vector<int > &prototypes, int k);
 
 tree *k2_means_hiearchy_binary_tree(vector<Mat > &SMD, vector<int > &prototypes, int k);
 
+void motion_sequence(vector<Mat > &SMD);
+
 float smd_distance(Mat src1, Mat src2) {
     return norm(src1, src2, NORM_L2);
 }
@@ -172,7 +175,7 @@ int main(int argc, char* argv[])
 
         // Serializing struct to student.data
         ofstream look_up_file("look_up_table.data", ios::binary);
-        look_up_file << node_count << ' ';
+        look_up_file << node_count << endl;
         // Create look_up_table
         for(int i = 1; i < node_count; i++) {
             for(int j = 1; j < node_count; j++)
@@ -188,7 +191,7 @@ int main(int argc, char* argv[])
 
         // Serializing struct to student.data
         ofstream output_file("binary_tree.data", ios::binary);
-        output_file << node_count << ' ';
+        output_file << node_count << endl;
 
         for(int n = 0; n < node_count; n++)
         {
@@ -217,10 +220,12 @@ int main(int argc, char* argv[])
             else
                 output_file<< -1 << ' ';
 
-            delete Nodes[n];
+            //delete Nodes[n];
         }
 
         output_file.close();
+
+        motion_sequence(SMD);
 
         // Reading from it
         // ifstream input_file("binary_tree.data", ios::binary);
@@ -388,6 +393,7 @@ void cal_motion_descriptor(Mat flow, Mat &motion_descriptor) {
     fxm_bq.copyTo(motion_descriptor(Rect(BOX_SIZE >> 4,    0,             BOX_SIZE >> 4, BOX_SIZE >> 4)));
     fyp_bq.copyTo(motion_descriptor(Rect(0,                BOX_SIZE >> 4, BOX_SIZE >> 4, BOX_SIZE >> 4)));
     fym_bq.copyTo(motion_descriptor(Rect(BOX_SIZE >> 4,    BOX_SIZE >> 4, BOX_SIZE >> 4, BOX_SIZE >> 4)));
+    normalize(motion_descriptor, motion_descriptor, 1, 0, NORM_L2);
 }
 
 void processVideo(const char* videoFilename, int seq, vector<Mat > &SMD) {
@@ -618,12 +624,12 @@ tree *k2_means_hiearchy_binary_tree(vector<Mat > &SMD, vector<int > &prototypes,
 
     if(prototypes.size() == 1)
     {
-        Nodes.push_back(new tree());
-        tree *lnode = Nodes[node_count];
+        // Nodes.push_back(new tree());
+        // tree *lnode = Nodes[node_count];
 
-        lnode->num  = node_count++;
-        lnode->data = SMD[prototypes[0]];
-        root->left = lnode;
+        // lnode->num  = node_count++;
+        // lnode->data = SMD[prototypes[0]];
+        // root->left = lnode;
         return root;
     } else if(prototypes.size() == 2) {
         Nodes.push_back(new tree());
@@ -752,4 +758,73 @@ tree *k2_means_hiearchy_binary_tree(vector<Mat > &SMD, vector<int > &prototypes,
     root->right = rnode;
 
     return root;
+}
+
+int frame_to_prototype(Mat smd)
+{
+    tree *node = Nodes[0];
+
+    while(node->left || node->right)
+    {
+        if(node->left && node->right) {
+            //cout << node->num << ' ' << node->left_num << ' ' << node->right_num << ' ' << smd_distance(smd, node->left->data) << ' ' << smd_distance(smd, node->right->data) << endl;
+
+            if (smd_distance(smd, node->left->data) < smd_distance(smd, node->right->data))
+                node = node->left;
+            else
+                node = node->right;
+        } else if(node->left) {
+            node = node->left;
+        } else if(node->right) {
+            node = node->right;
+        }
+    }
+
+//    cout << node->num << endl;
+
+    return node->num;
+}
+
+void motion_sequence(vector<Mat > &SMD) {
+    int sum = 0;
+    int index = 0;
+
+    vector<vector<int> > SEQ;
+
+    for (int i = 0; i < PERSON_NUM * GESTURE_NUM; i++) {
+        for (int j = 0; j < 6; j += 2) {
+            vector<int > s;
+            SEQ.push_back(s);
+            int count = (sequence[i][j+1] - sequence[i][j] + 1);
+            for (int k = sum; k < sum + count; k++)
+            {
+                int num = frame_to_prototype(SMD[k]);
+                SEQ[index].push_back(num);
+            }
+            sum += count;
+            index++;
+        }
+    }
+
+    sum = 0;
+    for (auto &s : SEQ)
+        sum +=s.size();
+
+    if(sum != SMD.size())
+        cout << "Error :" << sum << " != " << SMD.size();
+
+    ofstream sequence_file("sequence.data", ios::binary);
+    sequence_file << SEQ.size() << endl;
+    // Create sequence file
+    for(int i = 0; i < SEQ.size(); i++) {
+        sequence_file << SEQ[i].size() << ' ';
+        for(int j = 0; j < SEQ[i].size(); j++)
+        {
+            sequence_file << SEQ[i][j] << ' ';
+        }
+        sequence_file <<endl;
+    }
+
+    sequence_file.close();
+
 }

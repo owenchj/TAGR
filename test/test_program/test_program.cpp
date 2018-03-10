@@ -34,6 +34,9 @@ struct tree
 
 vector<tree* > Binary_Tree;
 vector<vector<float> > look_up_table;
+vector<vector<int> > sequence;
+
+vector<vector<vector<float> > > proto_matrix(126);
 
 // Global variables
 Mat frame; //current frame
@@ -53,11 +56,15 @@ void help();
 
 void processVideo(const char* videoFilename);
 
+float creat_proto_matrix(int num);
+
 float smd_distance(Mat src1, Mat src2) {
     return norm(src1, src2, NORM_L2);
 }
 
-tree *frame_to_prototype(Mat smd);
+int frame_to_prototype(Mat &smd);
+
+void process_DTW();
 
 void help()
 {
@@ -88,16 +95,35 @@ int main(int argc, char* argv[])
         return EXIT_FAILURE;
     }
     //create GUI windows
-    namedWindow("Frame");
-    namedWindow("FG Mask MOG 2");
+    // namedWindow("Frame");
+    // namedWindow("FG Mask MOG 2");
     //create Background Subtractor objects
     pMOG2 = createBackgroundSubtractorMOG2(); //MOG2 approach
     if(strcmp(argv[1], "-vid") == 0) {
         //input data coming from a video
 
+        // Read sequence
+        ifstream sequence_file("sequence.data", ios::binary);
+        int total_node = 0;
+        sequence_file >> total_node;
+
+        // Create sequence
+        for(int i = 0; i < total_node; i++) {
+            int each_seq_num = 0;
+            sequence_file >> each_seq_num;
+            sequence.push_back(vector<int>());
+            for(int j = 0; j < each_seq_num; j++)
+            {
+                int seq = 0;
+                sequence_file >> seq;
+                sequence[i].push_back(seq);
+            }
+        }
+        sequence_file.close();
+
         // Read look_up_table
         ifstream look_up_file("look_up_table.data", ios::binary);
-        int total_node = 0;
+        total_node = 0;
         look_up_file >> total_node;
 
         // Create look_up_table
@@ -309,6 +335,8 @@ void cal_motion_descriptor(Mat flow, Mat &motion_descriptor) {
     fxm_bq.copyTo(motion_descriptor(Rect(BOX_SIZE >> 4,    0,             BOX_SIZE >> 4, BOX_SIZE >> 4)));
     fyp_bq.copyTo(motion_descriptor(Rect(0,                BOX_SIZE >> 4, BOX_SIZE >> 4, BOX_SIZE >> 4)));
     fym_bq.copyTo(motion_descriptor(Rect(BOX_SIZE >> 4,    BOX_SIZE >> 4, BOX_SIZE >> 4, BOX_SIZE >> 4)));
+
+    normalize(motion_descriptor, motion_descriptor, 1, 0, NORM_L2);
 }
 
 void processVideo(const char* videoFilename) {
@@ -378,8 +406,9 @@ void processVideo(const char* videoFilename) {
             target_frame_gray.copyTo(prevgray);
         }
 
-        frame_to_prototype(smd);
+        creat_proto_matrix(frame_to_prototype(smd));
 
+        process_DTW();
         //get the frame number and write it on the current frame
         // stringstream ss;
         // rectangle(frame, cv::Point(10, 2), cv::Point(100,20),
@@ -390,9 +419,9 @@ void processVideo(const char* videoFilename) {
         //         FONT_HERSHEY_SIMPLEX, 0.5 , cv::Scalar(0,0,0));
 
         //show the current frame and the fg masks
-        imshow("Frame", frame);
+        // imshow("Frame", frame);
         // imshow("Frame", target_frame);
-        imshow("FG Mask MOG 2", fgMaskMOG2);
+        // imshow("FG Mask MOG 2", fgMaskMOG2);
         imshow("Shape-Motion descriptor", smd);
         //get the input from the keyboard
         keyboard = (char)waitKey( 2000 );
@@ -402,7 +431,7 @@ void processVideo(const char* videoFilename) {
     capture.release();
 }
 
-tree *frame_to_prototype(Mat smd)
+int frame_to_prototype(Mat &smd)
 {
     tree *node = Binary_Tree[0];
 
@@ -416,15 +445,13 @@ tree *frame_to_prototype(Mat smd)
             else
                 node = node->right;
         } else if(node->left) {
-            cout << "left" << endl;
             node = node->left;
         } else if(node->right) {
-            cout << "right" << endl;
             node = node->right;
         }
     }
 
-    cout << node->num << endl;
+    return node->num;
 
     // float min = 5000;
     // int   index = 0;
@@ -439,6 +466,113 @@ tree *frame_to_prototype(Mat smd)
     // }
 
     // cout << node->num << ' ' << index << endl;
+}
 
-    return node;
+float min_three(float a, float b, float c)
+{
+    if(a < b && a < c)        return a;
+    else if (b < a && b < c)  return b;
+    else                      return c;
+}
+
+void min_neighbour(int &act, int &i, int &j, float &result) {
+    if((i + j) == 0) {
+        result = 0;
+    } else if(i==0) {
+        result = proto_matrix[act][i][j - 1];
+    } else if(j==0) {
+        result = proto_matrix[act][i -1][j];
+    } else {
+        result = min_three (proto_matrix[act][i - 1][j - 1],
+                            proto_matrix[act][i][j - 1],
+                            proto_matrix[act][i - 1][j]);
+    }
+
+}
+
+
+int total_seq = 0;
+
+float creat_proto_matrix(int num)
+{
+    for (int i = 0; i < sequence.size(); i++)
+    {
+        for (int j = 0; j < sequence[i].size(); j++)
+        {
+            if(total_seq == 0)
+            {
+                proto_matrix[i].push_back(vector<float>());
+            }
+            int val = sequence[i][j];
+            float d = look_up_table[val - 1][num - 1];
+            float min_val;
+            min_neighbour(i, j, total_seq, min_val);
+            proto_matrix[i][j].push_back(min_val + d);
+        }
+    }
+    total_seq++;
+
+    cout << "!!"<< endl;
+
+    for (auto &p : proto_matrix)
+    {
+        for (auto &v : p) {
+            for (auto &i : v)
+                cout << i << ' ';
+            cout << endl;
+        }
+        cout << endl;
+        cout << endl;
+        cout << endl;
+    }
+
+}
+
+int min_three_DTW(float a, float b, float c, int &i, int &j)
+{
+    if(a <= b && a <= c)       {i++;j++;}
+    else if (b <= a && b <= c) {j++;}
+    else                       {i++;}
+}
+
+void process_DTW() {
+    cout << "???"<< total_seq << endl;
+
+    if(total_seq > 50) {
+        for (int n = 0; n < proto_matrix.size(); n++)
+        {
+            int i=0; int j=0; int num=0;
+            float sum = 0;
+
+            while(1) {
+                // cout << "["<<i <<", " << j<< "]"<< endl;
+
+                if(i > 0)
+                {
+                    num++;
+                    sum += proto_matrix[n][i][j];
+                }
+
+                if(i == (proto_matrix[n].size() - 1))
+                    break;
+                else if(j == (total_seq - 1))
+                    i++;
+                else {
+                    min_three_DTW (proto_matrix[n][i + 1][j + 1],
+                                   proto_matrix[n][i][j + 1],
+                                   proto_matrix[n][i + 1][j],
+                                   i,j);
+                }
+            }
+
+            float avg = sum / num;
+            if (avg < 20) {
+                int person = n / 42;
+                int gesture = (n - 42 * person) / 3;
+                // cout << "Person "<< person + 1 << "Gesture " <<  gesture + 1 << " Avg = " << avg << ' ';
+                 cout << "Person "<< person + 1 << "Gesture " <<  gesture + 1 << " Avg = " << avg << ' ';
+            }
+        }
+    }
+    cout << endl;
 }

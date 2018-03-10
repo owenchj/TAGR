@@ -4,6 +4,8 @@
 #include <fstream>
 using namespace std;
 
+extern vector<vector<float> > look_up_table;
+
 
 namespace SLOW {
 #define MAX_VALUE 10000
@@ -78,7 +80,9 @@ namespace SLOW {
     }
 
     float dist(int &a, int &b) {
-        return abs(a - b);
+        // cout << a << ' '<< b <<' ';
+        //return abs(a - b);
+        return look_up_table[a-1][b-1];
     }
 
     D& min(D &d0, D &d1, D &d2) {
@@ -117,7 +121,7 @@ namespace SLOW {
         for (int i = 1; i <= window.x; i++)
             for (int j = 1; j <= window.y; j++)
             {
-                int dt = dist(x[i-1], y[j-1]);
+                float dt = dist(x[i-1], y[j-1]);
                 D d0, d1, d2;
 
                 if (d[j][i-1].d != MAX_VALUE)
@@ -155,10 +159,10 @@ namespace SLOW {
 
         std::reverse(path.begin(), path.end());
 
-        for(auto &p :path)
-            cout << p << " ";
+        /* for(auto &p :path) */
+        /*     cout << p << " "; */
 
-        cout << d[len_y][len_x].d << endl;
+        /* cout << d[len_y][len_x].d << endl; */
 
         return DTW_RESULT(d[len_y][len_x].d, path);
     }
