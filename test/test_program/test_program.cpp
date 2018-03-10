@@ -422,9 +422,9 @@ void processVideo(const char* videoFilename) {
         // imshow("Frame", frame);
         // imshow("Frame", target_frame);
         // imshow("FG Mask MOG 2", fgMaskMOG2);
-        imshow("Shape-Motion descriptor", smd);
+        //imshow("Shape-Motion descriptor", smd);
         //get the input from the keyboard
-        keyboard = (char)waitKey( 2000 );
+        //keyboard = (char)waitKey( 2000 );
     }
 
     //delete capture object
@@ -495,6 +495,8 @@ int total_seq = 0;
 
 float creat_proto_matrix(int num)
 {
+    // cout << total_seq << " : "<< num << endl;
+
     for (int i = 0; i < sequence.size(); i++)
     {
         for (int j = 0; j < sequence[i].size(); j++)
@@ -505,26 +507,39 @@ float creat_proto_matrix(int num)
             }
             int val = sequence[i][j];
             float d = look_up_table[val - 1][num - 1];
-            float min_val;
-            min_neighbour(i, j, total_seq, min_val);
-            proto_matrix[i][j].push_back(min_val + d);
+            proto_matrix[i][j].push_back(d);
         }
     }
+
     total_seq++;
 
-    cout << "!!"<< endl;
 
-    for (auto &p : proto_matrix)
-    {
-        for (auto &v : p) {
-            for (auto &i : v)
-                cout << i << ' ';
-            cout << endl;
-        }
-        cout << endl;
-        cout << endl;
-        cout << endl;
-    }
+    // if(total_seq > 30) {
+    //    for (auto &p : proto_matrix)
+    //     {
+    //         for (auto &v : p) {
+    //             for (auto &i : v)
+    //                 cout << i << ' ';
+    //             cout << endl;
+    //         }
+    //         cout << endl;
+    //         cout << endl;
+    //         cout << endl;
+    //         cout << endl;
+    //         cout << endl;
+    //         cout << endl;
+    //     }
+    // }
+
+
+    // for (auto &v : proto_matrix[90]) {
+    //     for (auto &i : v)
+    //         cout << i << ' ';
+    //     cout << endl;
+    // }
+    // cout << endl;
+    // cout << endl;
+    // cout << endl;
 
 }
 
@@ -536,18 +551,18 @@ int min_three_DTW(float a, float b, float c, int &i, int &j)
 }
 
 void process_DTW() {
-    cout << "???"<< total_seq << endl;
+    // cout << "???" << endl;
 
     if(total_seq > 50) {
         for (int n = 0; n < proto_matrix.size(); n++)
         {
-            int i=0; int j=0; int num=0;
+            int i=0; int j=total_seq - 50; int num=0;
             float sum = 0;
 
             while(1) {
-                // cout << "["<<i <<", " << j<< "]"<< endl;
+                // cout << "["<<i <<", " << j<< "]  "<< proto_matrix[n][i][j]<< endl;
 
-                if(i > 0)
+                if((i + j) >=2 )
                 {
                     num++;
                     sum += proto_matrix[n][i][j];
@@ -566,13 +581,13 @@ void process_DTW() {
             }
 
             float avg = sum / num;
-            if (avg < 20) {
+            if (avg < 1) {
                 int person = n / 42;
                 int gesture = (n - 42 * person) / 3;
                 // cout << "Person "<< person + 1 << "Gesture " <<  gesture + 1 << " Avg = " << avg << ' ';
-                 cout << "Person "<< person + 1 << "Gesture " <<  gesture + 1 << " Avg = " << avg << ' ';
+                cout << "Gesture " <<  gesture + 1 << " Avg = " << avg << ' ' << endl;
             }
         }
     }
-    cout << endl;
+//    cout << endl;
 }
